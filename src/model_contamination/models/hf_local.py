@@ -77,6 +77,11 @@ class HFLocalModel(ModelInterface):
 
         cfg = self._model.config
         self.n_layers = getattr(cfg, "num_hidden_layers", None) or getattr(cfg, "n_layer", None)
+        self._max_position = (
+            getattr(cfg, "max_position_embeddings", None)
+            or getattr(cfg, "n_positions", None)
+            or getattr(cfg, "n_ctx", None)
+        )
 
     # ----------------------------- capabilities ----------------------------- #
 
@@ -102,7 +107,14 @@ class HFLocalModel(ModelInterface):
     ) -> list[str]:
         if not prompts:
             return []
-        enc = self._tokenizer(prompts, return_tensors="pt", padding=True, truncation=False)
+        # 留 max_tokens 给生成；prompts 超长则左截断（保尾部，含 question 末尾的 "Answer:"）
+        max_in = None
+        if self._max_position is not None:
+            max_in = max(1, self._max_position - max_tokens)
+        enc = self._tokenizer(
+            prompts, return_tensors="pt", padding=True, truncation=max_in is not None,
+            max_length=max_in,
+        )
         input_ids = enc["input_ids"].to(self._device)
         attn = enc["attention_mask"].to(self._device)
         gen_kwargs: dict[str, Any] = {
@@ -138,6 +150,14 @@ class HFLocalModel(ModelInterface):
         full_len = full_ids.shape[1]
         if full_len <= prompt_len:
             return np.zeros(0, dtype=np.float64)
+
+        # 截断超出 context 的部分：保留最后 max_position 个 token（completion 尾部最重要）。
+        # 仍保证 prompt 部分至少 1 token 留作 conditioning。
+        if self._max_position is not None and full_len > self._max_position:
+            drop = full_len - self._max_position
+            full_ids = full_ids[:, drop:]
+            prompt_len = max(1, prompt_len - drop)
+            full_len = full_ids.shape[1]
 
         full_ids = full_ids.to(self._device)
         with self._torch.no_grad():
