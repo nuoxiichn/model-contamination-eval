@@ -1,0 +1,65 @@
+# Pipeline 默认参数（命令行 / 实验 yaml 可 override）
+
+# 缓存目录（logprobs 与 generate 结果都进这里，重跑差分时不重算）
+cache_dir: ./logprobs_cache
+
+# 实验输出根目录
+outputs_dir: ./outputs
+
+# 每个 benchmark 最多评估多少样本（None = 全量）
+max_samples_per_benchmark: 1000
+
+# ============ 各方法默认参数 ============
+
+oren:
+  n_shards: 50          # 数据集切片数
+  alpha: 0.01           # 单侧 t 检验显著性
+  min_samples: 200      # 少于此样本不跑（信号不够）
+
+guided:
+  prefix_ratio: 0.5     # 取前 50% 作为前缀
+  n_runs: 3             # 每条样本生成几次
+  similarity_metric: rouge_l   # rouge_l / bleurt
+
+paraphrase:
+  n_paraphrases: 5
+  paraphraser: gpt-4-mini    # 或本地小模型；空字符串走规则改写
+  worst_case_drop_threshold: 0.15
+
+mink_plus_plus:
+  k_ratio: 0.2          # 取概率最低的 20% token
+
+spv_mia:
+  reference_model: ${ENV:BASE_CHECKPOINT}
+  n_neighbors: 10
+  noise_scale: 0.1
+
+memlens:
+  layer_range: [0, 16]   # 早期层范围（与总层数 / 2 取较小者）
+  shortcut_threshold: 0.5  # 早期层概率 > 此值视为 shortcut
+
+canary:
+  pretrain_canary_path: ./data/canary/pretrain.jsonl
+  sft_canary_path: ./data/canary/sft.jsonl
+
+family_diff:
+  drop_threshold_red: 10    # 同族落差 >10 分 → 红灯候选
+  drop_threshold_yellow: 5  # 5-10 分 → 黄灯候选
+
+# ============ 综合裁决规则 ============
+
+verdict:
+  red_min_strong_signals: 2     # 强信号 ≥ 2 → 红灯
+  yellow_min_signals: 1
+  strong_signals: [oren, family_diff, canary, paraphrase, spv_mia]
+  weak_signals: [mink_plus_plus, guided, perm_option]
+
+# ============ Stage 默认方法集 ============
+
+stages:
+  base:
+    methods: [oren, mink_plus_plus, guided, perm_option, family_diff]
+  sft:
+    methods: [oren, spv_mia, memlens, paraphrase, log_prober, family_diff, canary]
+  rlhf:
+    methods: [oren, self_critique, paraphrase, family_diff, canary]

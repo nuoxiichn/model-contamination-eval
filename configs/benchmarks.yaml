@@ -1,0 +1,205 @@
+# Benchmark 注册表
+#
+# 字段说明：
+#   name:                  唯一名称（kebab-case）
+#   family:                所属 family，用于同族对照（GSM8K 与 GSM1k 同 family=gsm）
+#   format:                multiple_choice / math_cot / code_completion / open_generation / cloze
+#   language:              en / zh / multi
+#   variants:              同族对照集名称列表（必须也在本注册表中）
+#   applicable_methods:    可应用的检测方法 tag 列表
+#   trustworthiness_default: clean / suspect / dirty —— 默认裁决，跑完后由 pipeline 升级或确认
+#   data_source:           hf / modelscope / local / livebench-api
+#   data_id:               loader 用的标识（HF dataset id 或本地路径）
+#   note:                  备注
+#
+# 方法 tag：
+#   oren           Oren 分片排列检验（灰盒，数据集级）
+#   guided         Guided Instruction（黑盒，仅补全友好任务）
+#   ts_guessing    TS-Guessing（黑盒，仅 QA / 多选）
+#   perm_option    选项排列检测（灰盒，仅多选）
+#   paraphrase     Paraphrase Stress Test（黑盒）
+#   mink_plus_plus Min-K%++（灰盒）
+#   spv_mia        SPV-MIA（灰盒，SFT 阶段最强）
+#   memlens        MemLens 早期层探测（白盒，需 hidden states）
+#   log_prober     LogProber（灰盒）
+#   self_critique  Self-Critique（黑盒，RLHF 后唯一可用）
+#   canary         Canary 召回率（黑盒，前置：注入过）
+
+benchmarks:
+
+  # ============ MMLU 族 ============
+  - name: mmlu
+    family: mmlu
+    format: multiple_choice
+    language: en
+    variants: [mmlu-cf]
+    applicable_methods: [oren, guided, ts_guessing, perm_option, paraphrase, mink_plus_plus, spv_mia, memlens]
+    trustworthiness_default: suspect
+    data_source: hf
+    data_id: cais/mmlu
+    note: 已知广泛污染，Phase 1 sanity check 的 dirty 参照
+
+  - name: mmlu-cf
+    family: mmlu
+    format: multiple_choice
+    language: en
+    variants: []
+    applicable_methods: [oren, perm_option, paraphrase]
+    trustworthiness_default: clean
+    data_source: hf
+    data_id: microsoft/MMLU-CF
+    note: 无污染 MMLU 对照
+
+  # ============ GSM 族 ============
+  - name: gsm8k
+    family: gsm
+    format: math_cot
+    language: en
+    variants: [gsm1k, gsm-plus]
+    applicable_methods: [oren, guided, paraphrase, memlens, mink_plus_plus, spv_mia]
+    trustworthiness_default: suspect
+    data_source: hf
+    data_id: gsm8k
+    note: 已知广泛污染（含 GPT-4 训练集），Phase 1 sanity check 的 dirty 参照
+
+  - name: gsm1k
+    family: gsm
+    format: math_cot
+    language: en
+    variants: []
+    applicable_methods: [oren, paraphrase]
+    trustworthiness_default: clean
+    data_source: local
+    data_id: data/gsm1k.jsonl
+    note: Scale AI，不公开发布，需联系获取
+
+  - name: gsm-plus
+    family: gsm
+    format: math_cot
+    language: en
+    variants: []
+    applicable_methods: [oren, paraphrase]
+    trustworthiness_default: clean
+    data_source: hf
+    data_id: qintongli/GSM-Plus
+    note: GSM8K 同族扰动版本
+
+  # ============ HumanEval / 代码族 ============
+  - name: humaneval
+    family: code-py
+    format: code_completion
+    language: en
+    variants: [lbpp, mhpp]
+    applicable_methods: [oren, guided, paraphrase, mink_plus_plus, spv_mia]
+    trustworthiness_default: suspect
+    data_source: hf
+    data_id: openai_humaneval
+
+  - name: mbpp
+    family: code-py
+    format: code_completion
+    language: en
+    variants: [lbpp, mhpp]
+    applicable_methods: [oren, guided, paraphrase]
+    trustworthiness_default: suspect
+    data_source: hf
+    data_id: mbpp
+
+  - name: lbpp
+    family: code-py
+    format: code_completion
+    language: en
+    variants: []
+    applicable_methods: [oren, paraphrase]
+    trustworthiness_default: clean
+    data_source: hf
+    data_id: CohereForAI/lbpp
+    note: DeepMind LBPP，HumanEval / MBPP 同族对照
+
+  - name: mhpp
+    family: code-py
+    format: code_completion
+    language: en
+    variants: []
+    applicable_methods: [oren, paraphrase]
+    trustworthiness_default: clean
+    data_source: hf
+    data_id: SparksofAGI/MHPP
+    note: MBPP 改进版（实测 MBPP 65.4% 污染）
+
+  # ============ 中文 ============
+  - name: c-eval
+    family: c-eval
+    format: multiple_choice
+    language: zh
+    variants: [cmmlu]
+    applicable_methods: [oren, perm_option, paraphrase, mink_plus_plus, spv_mia]
+    trustworthiness_default: suspect
+    data_source: hf
+    data_id: ceval/ceval-exam
+    note: Qwen 系列检出高污染（Yang AAAI 2024）
+
+  - name: cmmlu
+    family: c-eval
+    format: multiple_choice
+    language: zh
+    variants: []
+    applicable_methods: [oren, perm_option, paraphrase]
+    trustworthiness_default: suspect
+    data_source: hf
+    data_id: haonan-li/cmmlu
+
+  - name: cmb
+    family: cmb
+    format: multiple_choice
+    language: zh
+    variants: []
+    applicable_methods: [oren, perm_option]
+    trustworthiness_default: suspect
+    data_source: hf
+    data_id: FreedomIntelligence/CMB
+    note: Qwen2-72B 检出 42% 泄漏
+
+  # ============ 时间安全对照（天然 contamination-free）============
+  - name: livebench
+    family: livebench
+    format: open_generation
+    language: en
+    variants: []
+    applicable_methods: [paraphrase]
+    trustworthiness_default: clean
+    data_source: livebench-api
+    data_id: livebench-2026-06
+    note: 月更滚动，使用当月最新版本作为时间安全参照
+
+  - name: livecodebench
+    family: livebench
+    format: code_completion
+    language: en
+    variants: []
+    applicable_methods: [paraphrase]
+    trustworthiness_default: clean
+    data_source: hf
+    data_id: livecodebench/code_generation_lite
+
+  # ============ Instruction-following 类 ============
+  - name: mt-bench
+    family: mt-bench
+    format: open_generation
+    language: en
+    variants: [arena-hard]
+    applicable_methods: [paraphrase, canary]
+    trustworthiness_default: suspect
+    data_source: hf
+    data_id: lmsys/mt_bench_human_judgments
+    note: SFT 80 条数据即可拉升 45%（KIEval）
+
+  - name: arena-hard
+    family: mt-bench
+    format: open_generation
+    language: en
+    variants: []
+    applicable_methods: [paraphrase]
+    trustworthiness_default: suspect
+    data_source: hf
+    data_id: lmarena-ai/arena-hard-auto
