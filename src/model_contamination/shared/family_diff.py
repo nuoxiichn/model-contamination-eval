@@ -4,15 +4,18 @@
     SFT 污染：只抬被污染任务本身（GSM8K↑，GSM1k 不动）
     RL 污染：把泄漏迁移到同族任务（GSM8K↑，GSM1k 也↑，伪装成真泛化）
 
-接口契约：
-    输入 main_score + variant_scores
-    输出 FamilyDiffResult，含 delta_avg / delta_max / is_island 判定
+接口分两层：
+- family_diff(scores) 纯数值层，便于离线复算 / 测试
+- run_family_diff(model, registry, ...) 端到端：拉题、跑分、算差
 
 Phase 1：实装。这是最简单的信号但效果很强。
 """
 
 from __future__ import annotations
 
+from model_contamination.benchmarks import BenchmarkRegistry, load_questions
+from model_contamination.models.base import ModelInterface
+from model_contamination.shared.evaluator import evaluate_accuracy
 from model_contamination.types import FamilyDiffResult
 
 
@@ -79,3 +82,44 @@ def cross_stage_family_diff(
         for bench in rlhf
         if bench in sft
     }
+
+
+def run_family_diff(
+    model: ModelInterface,
+    registry: BenchmarkRegistry,
+    main_benchmark: str,
+    *,
+    limit: int | None = 50,
+    island_threshold: float = 10.0,
+) -> FamilyDiffResult:
+    """端到端：拉主 benchmark + 全部 variants 的题、跑分、算 ΔScore。
+
+    score 以百分点呈现（accuracy * 100），与 island_threshold 单位一致。
+    """
+    main_spec = registry.get(main_benchmark)
+    variant_specs = registry.get_variants(main_benchmark)
+
+    main_qs = load_questions(main_spec, limit=limit)
+    main_score = evaluate_accuracy(model, main_qs) * 100
+
+    variant_scores: dict[str, float] = {}
+    for vspec in variant_specs:
+        try:
+            vqs = load_questions(vspec, limit=limit)
+        except (NotImplementedError, FileNotFoundError, ValueError) as e:
+            # 对照集没下载 / 没 normalizer：略过该变体而不是炸掉整次跑
+            variant_scores[vspec.name] = float("nan")
+            continue
+        variant_scores[vspec.name] = evaluate_accuracy(model, vqs) * 100
+
+    usable = {k: v for k, v in variant_scores.items() if not _is_nan(v)}
+    return family_diff(
+        main_benchmark=main_benchmark,
+        main_score=main_score,
+        variant_scores=usable,
+        island_threshold=island_threshold,
+    )
+
+
+def _is_nan(x: float) -> bool:
+    return x != x
