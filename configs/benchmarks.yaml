@@ -64,6 +64,7 @@ benchmarks:
     trustworthiness_default: suspect
     data_source: hf
     data_id: Idavidrein/gpqa
+    data_subset: gpqa_diamond
     note: 科学推理主目标，无强同族对照，任务孤岛诊断失效，依赖 Oren + Paraphrase
 
   - name: math
@@ -77,8 +78,9 @@ benchmarks:
     applicable_methods: [oren, guided, paraphrase, memlens, mink_plus_plus, spv_mia]
     trustworthiness_default: suspect
     data_source: hf
-    data_id: hendrycks/competition_math
-    note: 数学推理跨阶段锚点。两阶段都跑 MATH；SFT 阶段额外跑 MATH-500/AIME-2025 不参与 ΔScore_stage
+    data_id: EleutherAI/hendrycks_math
+    data_subset: algebra
+    note: 数学推理跨阶段锚点。两阶段都跑 MATH；SFT 阶段额外跑 MATH-500/AIME-2025 不参与 ΔScore_stage（原 hendrycks/competition_math 下架，改用 EleutherAI/hendrycks_math；第一版仅 algebra 子集，全 7 子集合并待 loader 支持 multi-subset）
 
   - name: evalplus
     family: code-py
@@ -104,8 +106,8 @@ benchmarks:
     applicable_methods: [paraphrase]
     trustworthiness_default: clean
     data_source: hf
-    data_id: livecodebench/code_generation_lite
-    note: 动态竞赛代码，月更滚动天然抗污染；同时作为 evalplus 的干净对照
+    data_id: TBD
+    note: 动态竞赛代码，月更滚动天然抗污染；同时作为 evalplus 的干净对照。原 livecodebench/code_generation_lite 是 loader script 格式，datasets 5.0 不支持，data_id 待换
 
   - name: mgsm
     family: mgsm
@@ -118,7 +120,8 @@ benchmarks:
     trustworthiness_default: clean
     data_source: hf
     data_id: juletxara/mgsm
-    note: 多语言数学，反过来作 MATH 的干净对照
+    data_subset: en
+    note: 多语言数学，反过来作 MATH 的干净对照（HF 需 subset，第一版只下 en；多语言对照可后续按需扩展 zh/de/fr 等）
 
   - name: mmmlu
     family: mmlu-multi
@@ -325,6 +328,7 @@ benchmarks:
     trustworthiness_default: suspect
     data_source: hf
     data_id: gsm8k
+    data_subset: main
     note: 已知广泛污染（含 GPT-4 训练集），Phase 1 sanity check 的 dirty 参照
 
   - name: humaneval

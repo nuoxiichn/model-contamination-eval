@@ -50,6 +50,27 @@ MethodTag = Literal[
 
 
 @dataclass(frozen=True)
+class BenchmarkQuestion:
+    """单条 benchmark 题目，由 loader 从原始数据集归一化得到。
+
+    与 BenchmarkSpec 分离：spec 是 yaml 中的静态元信息（frozen），question 是
+    运行时数据；方法层接收 (spec, questions) 两参数。
+
+    归一化原则：保留所有原始字段到 raw，但把"题面 / 选项 / 答案"提到顶层，让方法层
+    不必关心数据集自己的 column 命名。
+    """
+
+    id: str
+    benchmark: str
+    format: BenchmarkFormat
+    prompt: str                       # 题面，不含答案
+    answer: str                       # 标准化答案字符串（MC: 'A'/'B'...; math: 数值或 latex）
+    choices: list[str] | None = None  # 仅 multiple_choice / cloze 有
+    answer_index: int | None = None   # MC: 答案在 choices 中的下标（perm_option / oren 用）
+    raw: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class BenchmarkSpec:
     """benchmarks.yaml 中单条 benchmark 的反序列化结果。"""
 
@@ -62,6 +83,7 @@ class BenchmarkSpec:
     trustworthiness_default: Verdict
     data_source: Literal["hf", "modelscope", "local", "livebench-api"]
     data_id: str
+    data_subset: str | None = None    # HF dataset config 名（如 gpqa_diamond / mgsm 的 'en'）
     note: str = ""
     # 对齐内部 P1 注册名单：tiers 决定是否进可信度报告主表
     # p1-pretrain / p1-sft 进主表；experimental / control 仅供对照与实验

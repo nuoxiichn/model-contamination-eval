@@ -66,6 +66,7 @@ def load_registry(config_path: Path | str | None = None) -> BenchmarkRegistry:
                 trustworthiness_default=Verdict(entry["trustworthiness_default"]),
                 data_source=entry["data_source"],
                 data_id=entry["data_id"],
+                data_subset=entry.get("data_subset"),
                 note=entry.get("note", ""),
                 tiers=entry.get("tiers", []),
                 stage_targets=entry.get("stage_targets", []),

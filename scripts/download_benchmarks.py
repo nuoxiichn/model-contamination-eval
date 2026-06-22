@@ -52,9 +52,16 @@ def main(benchmarks: tuple[str, ...], download_all: bool, cache_dir: str, mirror
         if spec.data_source != "hf":
             print(f"[skip] {spec.name} (source={spec.data_source})")
             continue
-        print(f"[i] downloading {spec.name} ← {spec.data_id}")
+        if spec.data_id == "TBD":
+            print(f"[skip] {spec.name} (data_id=TBD)")
+            continue
+        subset_msg = f" [{spec.data_subset}]" if spec.data_subset else ""
+        print(f"[i] downloading {spec.name} ← {spec.data_id}{subset_msg}")
         try:
-            load_dataset(spec.data_id, trust_remote_code=True)
+            kwargs = {}
+            if spec.data_subset:
+                kwargs["name"] = spec.data_subset
+            load_dataset(spec.data_id, **kwargs)
             print(f"[ok] {spec.name}")
         except Exception as e:
             print(f"[err] {spec.name}: {e}")
