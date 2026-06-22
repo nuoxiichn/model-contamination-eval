@@ -19,6 +19,7 @@ class Capability(str, Enum):
     """模型后端可能不支持的能力。"""
 
     LOGPROBS = "logprobs"              # 给定 prompt + completion，返回每 token 的 log p
+    TOKEN_DIST_STATS = "token_dist_stats"  # 每个位置全 vocab 分布的均值/方差（Min-K%++ 需要）
     HIDDEN_STATES = "hidden_states"    # 各层 hidden states（MemLens 需要）
     LOGITS_LENS = "logits_lens"        # 中间层 unembedding 后的 logits（MemLens 严格需要）
     BATCH = "batch"                    # 支持批量推理
@@ -55,6 +56,24 @@ class ModelInterface(ABC):
         raise NotImplementedError(
             f"{type(self).__name__} does not implement logprobs; "
             "check supports(Capability.LOGPROBS) before calling."
+        )
+
+    def token_logprob_stats(self, prompt: str, completion: str) -> dict[str, np.ndarray]:
+        """返回 completion 每个 token 位置的 (chosen_logp, mu, sigma)。
+
+        定义（Min-K%++, Zhang et al. 2024, arXiv:2404.02936）：
+            对位置 i，模型在 x_<i 下的分布 p_i(v)
+            chosen_logp[i] = log p_i(x_i)
+            mu[i]    = E_{v~p_i}[log p_i(v)] = Σ_v p_i(v) log p_i(v)   (= -H(p_i))
+            sigma[i] = sqrt(Var_{v~p_i}[log p_i(v)])
+
+        返回 dict 含三个长度同 chosen logp 的 np.ndarray（自然对数）。
+
+        前置：supports(Capability.TOKEN_DIST_STATS) is True。
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement token_logprob_stats; "
+            "check supports(Capability.TOKEN_DIST_STATS) before calling."
         )
 
     def hidden_states(self, prompt: str) -> np.ndarray | None:

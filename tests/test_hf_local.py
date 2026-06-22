@@ -44,6 +44,7 @@ def test_supports(tiny_model: HFLocalModel) -> None:
     assert tiny_model.supports(Capability.GENERATE)
     assert tiny_model.supports(Capability.BATCH)
     assert tiny_model.supports(Capability.LOGPROBS)
+    assert tiny_model.supports(Capability.TOKEN_DIST_STATS)
     assert tiny_model.supports(Capability.HIDDEN_STATES)
     # MemLens 接口尚未与 hf_local 对接，约定 False
     assert not tiny_model.supports(Capability.LOGITS_LENS)
@@ -93,3 +94,31 @@ def test_hidden_states_shape(tiny_model: HFLocalModel) -> None:
     assert hs.ndim == 3
     assert hs.shape[0] == tiny_model.n_layers + 1
     assert hs.shape[1] >= 1
+
+
+def test_token_logprob_stats_shapes_and_signs(tiny_model: HFLocalModel) -> None:
+    """同一次 forward 应返回 chosen_logp / μ / σ 三个等长数组。"""
+    prompt, completion = "The answer is", " 42 indeed"
+    stats = tiny_model.token_logprob_stats(prompt, completion)
+    assert set(stats) == {"chosen_logp", "mu", "sigma"}
+    n = stats["chosen_logp"].shape[0]
+    assert n > 0
+    assert stats["mu"].shape == (n,)
+    assert stats["sigma"].shape == (n,)
+    # μ = E[log p] ≤ 0；σ ≥ 0
+    assert np.all(stats["mu"] <= 1e-6)
+    assert np.all(stats["sigma"] >= 0.0)
+    # chosen_logp 与 logprobs() 应一致（同一次 forward 抽取的 token logp）
+    lp = tiny_model.logprobs(prompt, completion)
+    assert np.allclose(stats["chosen_logp"], lp, atol=1e-5)
+    # 归一化值有限
+    safe_sigma = np.where(stats["sigma"] > 1e-8, stats["sigma"], np.nan)
+    normalized = (stats["chosen_logp"] - stats["mu"]) / safe_sigma
+    assert np.all(np.isfinite(normalized[~np.isnan(normalized)]))
+
+
+def test_token_logprob_stats_empty_completion(tiny_model: HFLocalModel) -> None:
+    stats = tiny_model.token_logprob_stats("hi", "")
+    assert stats["chosen_logp"].shape == (0,)
+    assert stats["mu"].shape == (0,)
+    assert stats["sigma"].shape == (0,)

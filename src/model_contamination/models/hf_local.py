@@ -94,6 +94,7 @@ class HFLocalModel(ModelInterface):
             Capability.GENERATE,
             Capability.BATCH,
             Capability.LOGPROBS,
+            Capability.TOKEN_DIST_STATS,
             Capability.HIDDEN_STATES,
         }
 
@@ -169,6 +170,55 @@ class HFLocalModel(ModelInterface):
         pred_logits = log_probs[0, prompt_len - 1 : full_len - 1, :]   # (n_completion, vocab)
         token_logp = pred_logits.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
         return token_logp.detach().cpu().numpy().astype(np.float64)
+
+    # ----------------------------- token-level distribution stats ----------------------------- #
+
+    def token_logprob_stats(self, prompt: str, completion: str) -> dict[str, np.ndarray]:
+        """Min-K%++ 用：单次 forward 同时返回 chosen_logp / μ / σ。
+
+        μ_i = Σ_v p_i(v) log p_i(v) ；σ_i = sqrt(Σ_v p_i(v) (log p_i(v) - μ_i)^2)。
+        通过 log_softmax 一次性算，不保留 full vocab tensor 在 host，省内存。
+        """
+        prompt_ids = self._tokenizer(prompt, return_tensors="pt", add_special_tokens=True)["input_ids"]
+        full_ids = self._tokenizer(
+            prompt + completion, return_tensors="pt", add_special_tokens=True
+        )["input_ids"]
+        prompt_len = prompt_ids.shape[1]
+        full_len = full_ids.shape[1]
+        if full_len <= prompt_len:
+            empty = np.zeros(0, dtype=np.float64)
+            return {"chosen_logp": empty, "mu": empty.copy(), "sigma": empty.copy()}
+
+        # 与 logprobs 一致的 context-length 守护：超长保留尾部
+        if self._max_position is not None and full_len > self._max_position:
+            drop = full_len - self._max_position
+            full_ids = full_ids[:, drop:]
+            prompt_len = max(1, prompt_len - drop)
+            full_len = full_ids.shape[1]
+
+        full_ids = full_ids.to(self._device)
+        with self._torch.no_grad():
+            logits = self._model(input_ids=full_ids).logits  # (1, full_len, vocab)
+            # log_p, p 都保留 fp32 防止 bf16 vocab 求和误差
+            log_p = self._torch.log_softmax(logits.float(), dim=-1)
+            p = log_p.exp()
+            # μ_i = E[log p]；σ_i^2 = E[(log p - μ)^2]
+            mu = (p * log_p).sum(dim=-1)                      # (1, full_len)
+            var = (p * (log_p - mu.unsqueeze(-1)) ** 2).sum(dim=-1)
+            sigma = var.clamp(min=0.0).sqrt()
+
+            # completion 位置：[prompt_len, full_len) ；对应预测位置 [prompt_len-1, full_len-1)
+            target_ids = full_ids[0, prompt_len:full_len]
+            pred_logp = log_p[0, prompt_len - 1 : full_len - 1, :]
+            chosen = pred_logp.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
+            mu_aligned = mu[0, prompt_len - 1 : full_len - 1]
+            sigma_aligned = sigma[0, prompt_len - 1 : full_len - 1]
+
+        return {
+            "chosen_logp": chosen.detach().cpu().numpy().astype(np.float64),
+            "mu": mu_aligned.detach().cpu().numpy().astype(np.float64),
+            "sigma": sigma_aligned.detach().cpu().numpy().astype(np.float64),
+        }
 
     # ----------------------------- hidden_states ----------------------------- #
 
