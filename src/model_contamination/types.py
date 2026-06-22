@@ -63,6 +63,13 @@ class BenchmarkSpec:
     data_source: Literal["hf", "modelscope", "local", "livebench-api"]
     data_id: str
     note: str = ""
+    # 对齐内部 P1 注册名单：tiers 决定是否进可信度报告主表
+    # p1-pretrain / p1-sft 进主表；experimental / control 仅供对照与实验
+    tiers: list[str] = field(default_factory=list)
+    # pipeline 实际在哪些 stage 上对该 benchmark 跑检测，元素属于 {"base", "sft", "rlhf"}
+    stage_targets: list[str] = field(default_factory=list)
+    # 是否作为跨阶段 ΔScore 锚点（数学条目里只有 MATH 是 True）
+    cross_stage_anchor: bool = False
 
 
 @dataclass

@@ -67,6 +67,9 @@ def load_registry(config_path: Path | str | None = None) -> BenchmarkRegistry:
                 data_source=entry["data_source"],
                 data_id=entry["data_id"],
                 note=entry.get("note", ""),
+                tiers=entry.get("tiers", []),
+                stage_targets=entry.get("stage_targets", []),
+                cross_stage_anchor=entry.get("cross_stage_anchor", False),
             )
         )
     # 校验变体引用存在
