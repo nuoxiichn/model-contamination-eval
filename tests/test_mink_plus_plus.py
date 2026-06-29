@@ -18,6 +18,8 @@ import pytest
 from model_contamination.models.base import Capability, ModelInterface
 from model_contamination.stage_base.min_k_plus_plus import (
     _auc_target_vs_control,
+
+    _location_with_raw,
     _mink_pp_sample_score,
     mink_plus_plus,
 )
@@ -217,3 +219,48 @@ def test_sample_score_handles_zero_sigma():
             }
     score = _mink_pp_sample_score(_M(), "p", "c", k_ratio=0.5)
     assert score == pytest.approx(-2.0)
+
+
+# ----------------------------- estimator robustness ----------------------------- #
+
+
+def test_location_mean_matches_numpy():
+    arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    loc, raw = _location_with_raw(arr, "mean", trim_ratio=0.0)
+    assert loc == pytest.approx(3.0)
+    assert raw == pytest.approx(3.0)
+
+
+def test_location_trim_mean_drops_outliers():
+    # 模拟 calibration Finding 5：126/200 个分数远低于其他
+    arr = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -1000.0, -1000.0])
+    loc_mean, raw = _location_with_raw(arr, "mean", trim_ratio=0.1)
+    loc_trim, _ = _location_with_raw(arr, "trim_mean", trim_ratio=0.1)
+    loc_med, _ = _location_with_raw(arr, "median", trim_ratio=0.0)
+    # raw mean 被两个 -1000 拉到 -199.2
+    assert raw < -100
+    assert loc_mean == raw  # estimator='mean' 等于 raw
+    # trim_mean 0.1 双端去 1 个，去掉 1 个 1.0 和 1 个 -1000.0 → 仍被剩下的 -1000 拉
+    # 但已经显著比 raw 好
+    assert loc_trim > raw
+    assert loc_med == 1.0  # median 完全 robust
+
+
+def test_mean_only_mode_uses_estimator_signal():
+    qs = [_q(i) for i in range(40)]
+    r_mean = mink_plus_plus(
+        _SeededStatsModel(), _spec(), qs, min_samples=30, estimator="mean",
+    )
+    r_trim = mink_plus_plus(
+        _SeededStatsModel(), _spec(), qs, min_samples=30, estimator="trim_mean", trim_ratio=0.1,
+    )
+    r_med = mink_plus_plus(
+        _SeededStatsModel(), _spec(), qs, min_samples=30, estimator="median",
+    )
+    for r, name in [(r_mean, "mean"), (r_trim, "trim_mean"), (r_med, "median")]:
+        assert r.evidence["estimator"] == name
+        assert r.evidence["target_mean"] == r.signal
+        assert r.evidence["target_mean_raw"] == pytest.approx(
+            float(np.mean(r.evidence["target_scores"]))
+        )
+    assert r_mean.evidence["target_mean"] == r_mean.evidence["target_mean_raw"]

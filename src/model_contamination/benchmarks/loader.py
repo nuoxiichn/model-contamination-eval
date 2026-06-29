@@ -30,18 +30,23 @@ def load_questions(
     split: str = "test",
     limit: int | None = None,
     subset: str | None = None,
+    indices: list[int] | None = None,
 ) -> list[BenchmarkQuestion]:
     """从 spec.data_id 加载题目并归一化。
 
     参数:
         spec:    benchmark 元信息
         split:   HF dataset split，默认 'test'；部分数据集要传 'validation'
-        limit:   截断前 N 条，None 全量
+        limit:   截断前 N 条，None 全量；与 indices 互斥
         subset:  HF dataset 子集名（如 mmlu 的学科），None 时按 normalizer 默认
+        indices: 指定 HF 行号子集（与 SFT 注入 manifest 配套使用），按给定顺序取；
+                 与 limit 互斥。out-of-range 的下标直接报错，不静默跳过。
 
     返回:
         list[BenchmarkQuestion]
     """
+    if limit is not None and indices is not None:
+        raise ValueError("limit 与 indices 互斥，同时给出会产生歧义")
     if spec.data_id == "TBD":
         raise ValueError(
             f"benchmark {spec.name} 的 data_id 未确定（yaml 中为 'TBD'），"
@@ -86,6 +91,16 @@ def load_questions(
     ds = load_dataset(spec.data_id, split=split, **load_kwargs)
 
     out: list[BenchmarkQuestion] = []
+    if indices is not None:
+        n = len(ds)
+        for idx in indices:
+            if not 0 <= idx < n:
+                raise IndexError(
+                    f"{spec.name}: manifest idx {idx} 超出 dataset 范围 [0, {n})"
+                )
+            out.append(normalizer(ds[idx], idx, spec))
+        return out
+
     for idx, row in enumerate(_take(ds, limit)):
         out.append(normalizer(row, idx, spec))
     return out
@@ -183,12 +198,30 @@ def _normalize_mmlu_cf(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> Be
     )
 
 
+def _normalize_evalplus(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> BenchmarkQuestion:
+    """evalplus/humanevalplus: task_id + prompt (docstring+签名) + canonical_solution。
+
+    answer 字段放 canonical_solution（函数体）；prompt 是 docstring+签名。
+    Min-K%++ 需要把 prompt+answer 当作一个完整文本来检测，所以这种切分
+    与 prep_bench_to_sft.py 的注入形态一致。
+    """
+    return BenchmarkQuestion(
+        id=f"evalplus-{idx}",
+        benchmark=spec.name,
+        format="code_completion",
+        prompt=row["prompt"],
+        answer=row["canonical_solution"],
+        raw={"task_id": row.get("task_id"), "entry_point": row.get("entry_point")},
+    )
+
+
 _NORMALIZERS: dict[str, Normalizer] = {
     "gsm8k": _normalize_gsm8k,
     "math": _normalize_math,
     "math-500": _normalize_math_500,
     "mmlu-pro": _normalize_mmlu_pro,
     "mmlu-cf": _normalize_mmlu_cf,
+    "evalplus": _normalize_evalplus,
 }
 
 

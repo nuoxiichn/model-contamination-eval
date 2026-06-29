@@ -22,6 +22,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 
 from model_contamination.models.base import Capability, ModelInterface
@@ -36,6 +38,8 @@ from model_contamination.types import (
 _AUC_DIRTY = 0.70
 _AUC_SUSPECT = 0.60
 
+Estimator = Literal["mean", "trim_mean", "median"]
+
 
 def mink_plus_plus(
     model: ModelInterface,
@@ -45,13 +49,20 @@ def mink_plus_plus(
     k_ratio: float = 0.2,
     control_questions: list[BenchmarkQuestion] | None = None,
     min_samples: int = 30,
+    estimator: Estimator = "trim_mean",
+    trim_ratio: float = 0.1,
 ) -> DetectionResult:
     """Min-K%++ 主入口。
 
     k_ratio: bottom-K% 的 K（论文用 0.2）。
     control_questions: 同分布、假定未见过的对照（数学条目通常用 MATH-500 / AIME-2025）。
-      给了 → 计算二分类 AUC 作 signal；不给 → 只返 mean score（verdict INCONCLUSIVE）。
+      给了 → 计算二分类 AUC 作 signal；不给 → 只返 estimator(target_scores)（verdict INCONCLUSIVE）。
     min_samples: 主集最小题数；低于则 INCONCLUSIVE。
+    estimator: mean_only 模式下的位置估计。重度过拟合 ckpt 上 target_scores 会出
+      现极端 outlier（见 2026-06-29 calibration Finding 5：gsm8k_heavy×gsm8k 200 个
+      分数里 126 个 < -10，最小 -3825），mean 会被淹没。默认 trim_mean。AUC 模式
+      用 rank-based U 统计量，本来就对 outlier robust，不受此参数影响。
+    trim_ratio: estimator='trim_mean' 时两端各 trim 比例。默认 0.1（双端各 10%）。
     """
     stage = Stage(model.stage_tag)
 
@@ -90,17 +101,20 @@ def mink_plus_plus(
         )
 
     if control_questions is None or len(control_questions) == 0:
-        # 无对照 → 不能算 AUC；返回 mean score 作相对信号
-        mean_score = float(np.mean(target_scores))
+        # 无对照 → 不能算 AUC；返回 estimator(target_scores) 作相对信号
+        location, raw_mean = _location_with_raw(target_scores, estimator, trim_ratio)
         return DetectionResult(
             method="mink_plus_plus", stage=stage, benchmark=benchmark.name,
-            signal=mean_score, verdict_hint=Verdict.INCONCLUSIVE,
+            signal=location, verdict_hint=Verdict.INCONCLUSIVE,
             prerequisites_met=True,
             evidence={
                 "mode": "mean_only",
                 "k_ratio": k_ratio,
                 "n_target": int(len(target_scores)),
-                "target_mean": mean_score,
+                "estimator": estimator,
+                "trim_ratio": trim_ratio if estimator == "trim_mean" else None,
+                "target_mean": location,           # 保持字段名向后兼容；值是 estimator 输出
+                "target_mean_raw": raw_mean,       # 原始 np.mean，便于对照 outlier 影响
                 "target_std": float(np.std(target_scores, ddof=1)) if len(target_scores) > 1 else 0.0,
                 "target_scores": target_scores.tolist(),
                 "note": (
@@ -206,6 +220,31 @@ def _mink_pp_sample_score(
 
 def _filter_finite(arr: np.ndarray) -> np.ndarray:
     return arr[np.isfinite(arr)]
+
+
+def _location_with_raw(
+    arr: np.ndarray, estimator: Estimator, trim_ratio: float
+) -> tuple[float, float]:
+    """位置估计：返回 (estimator(arr), raw_mean) 两个值。
+
+    raw_mean 是 np.mean(arr)，留在 evidence 里方便定量判断 outlier 影响。
+    重度过拟合 ckpt 上 estimator(trim_mean) 与 raw_mean 可能差几十倍。
+    """
+    raw_mean = float(np.mean(arr))
+    if estimator == "mean":
+        return raw_mean, raw_mean
+    if estimator == "median":
+        return float(np.median(arr)), raw_mean
+    if estimator == "trim_mean":
+        if not 0.0 <= trim_ratio < 0.5:
+            raise ValueError(f"trim_ratio must be in [0, 0.5), got {trim_ratio}")
+        n = len(arr)
+        k = int(np.floor(trim_ratio * n))
+        if n - 2 * k <= 0:
+            return float(np.median(arr)), raw_mean  # 样本太少，退回 median
+        kept = np.sort(arr)[k:n - k]
+        return float(np.mean(kept)), raw_mean
+    raise ValueError(f"unknown estimator: {estimator!r}")
 
 
 def _auc_target_vs_control(target: np.ndarray, control: np.ndarray) -> float:
