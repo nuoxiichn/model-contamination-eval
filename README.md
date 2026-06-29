@@ -25,7 +25,7 @@ LLM benchmark 越来越不可信：
 
 | 阶段 | 主信号 | 备注 |
 | --- | --- | --- |
-| base | Oren 分片排列检验、Guided Instruction、Min-K%++ 辅助 | Oren 提供数学 FPR 保证 |
+| base | Oren 分片排列检验、Min-K%++ 辅助 | Oren 提供数学 FPR 保证 |
 | SFT | SPV-MIA（用同源 base 做 reference）、MemLens、Paraphrase Stress、同族对照 ΔScore | AUC 显著优于无 reference 的 MIA |
 | SFT + RLHF | Self-Critique、Paraphrase、同族迁移检测 | GRPO 一轮即抹除 SFT 阶段的 MIA 信号，传统方法在此退化 |
 
@@ -54,7 +54,7 @@ LLM benchmark 越来越不可信：
 | 中间层 hidden states 访问权限 | MemLens 才需要 | 不能跑 MemLens，其余不影响 |
 | 已知污染的 positive control 模型 | 用于阈值标定 | 当前缺失，红/黄/绿降级为**相对排名** |
 
-第三方黑盒模型只能跑 Guided Instruction / Paraphrase / 同族对照 ΔScore 三件套，CLI 会自动跳过白盒方法并在报告中标注"白盒方法不可用"。
+第三方黑盒模型只能跑 Paraphrase / 同族对照 ΔScore 两件套，CLI 会自动跳过白盒方法并在报告中标注"白盒方法不可用"。
 
 ## 当前阶段
 

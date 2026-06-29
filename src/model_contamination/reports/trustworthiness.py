@@ -16,7 +16,7 @@ from model_contamination.types import (
 )
 
 STRONG_SIGNALS = {"oren", "family_diff", "canary", "paraphrase", "spv_mia"}
-WEAK_SIGNALS = {"mink_plus_plus", "guided", "perm_option", "log_prober", "ts_guessing"}
+WEAK_SIGNALS = {"mink_plus_plus", "perm_option", "log_prober", "ts_guessing"}
 
 
 def render_trustworthiness_report(

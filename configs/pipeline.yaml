@@ -16,11 +16,6 @@ oren:
   alpha: 0.01           # 单侧 t 检验显著性
   min_samples: 200      # 少于此样本不跑（信号不够）
 
-guided:
-  prefix_ratio: 0.5     # 取前 50% 作为前缀
-  n_runs: 3             # 每条样本生成几次
-  similarity_metric: rouge_l   # rouge_l / bleurt
-
 paraphrase:
   n_paraphrases: 5
   paraphraser: gpt-4-mini    # 或本地小模型；空字符串走规则改写
@@ -52,13 +47,13 @@ verdict:
   red_min_strong_signals: 2     # 强信号 ≥ 2 → 红灯
   yellow_min_signals: 1
   strong_signals: [oren, family_diff, canary, paraphrase, spv_mia]
-  weak_signals: [mink_plus_plus, guided, perm_option]
+  weak_signals: [mink_plus_plus, perm_option]
 
 # ============ Stage 默认方法集 ============
 
 stages:
   base:
-    methods: [oren, mink_plus_plus, guided, perm_option, family_diff]
+    methods: [oren, mink_plus_plus, perm_option, family_diff]
   sft:
     methods: [oren, spv_mia, memlens, paraphrase, log_prober, family_diff, canary]
   rlhf:

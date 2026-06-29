@@ -21,7 +21,6 @@
 #
 # 方法 tag：
 #   oren           Oren 分片排列检验（灰盒，数据集级）
-#   guided         Guided Instruction（黑盒，仅补全友好任务）
 #   ts_guessing    TS-Guessing（黑盒，仅 QA / 多选）
 #   perm_option    选项排列检测（灰盒，仅多选）
 #   paraphrase     Paraphrase Stress Test（黑盒）
@@ -46,7 +45,7 @@ benchmarks:
     stage_targets: [base, sft]
     cross_stage_anchor: true
     variants: [mmlu-cf, mmmlu]
-    applicable_methods: [oren, guided, ts_guessing, perm_option, paraphrase, mink_plus_plus, spv_mia, memlens]
+    applicable_methods: [oren, ts_guessing, perm_option, paraphrase, mink_plus_plus, spv_mia, memlens]
     trustworthiness_default: suspect
     data_source: hf
     data_id: TIGER-Lab/MMLU-Pro
@@ -75,7 +74,7 @@ benchmarks:
     stage_targets: [base, sft]
     cross_stage_anchor: true
     variants: [gsm-plus, gsm1k, mgsm]
-    applicable_methods: [oren, guided, paraphrase, memlens, mink_plus_plus, spv_mia]
+    applicable_methods: [oren, paraphrase, memlens, mink_plus_plus, spv_mia]
     trustworthiness_default: suspect
     data_source: hf
     data_id: EleutherAI/hendrycks_math
@@ -89,7 +88,7 @@ benchmarks:
     tiers: [p1-pretrain]
     stage_targets: [base]
     variants: [lbpp, mhpp, livecodebench]
-    applicable_methods: [oren, guided, paraphrase, mink_plus_plus, spv_mia]
+    applicable_methods: [oren, paraphrase, mink_plus_plus, spv_mia]
     trustworthiness_default: suspect
     data_source: hf
     data_id: evalplus/humanevalplus
@@ -160,7 +159,7 @@ benchmarks:
     tiers: [p1-sft]
     stage_targets: [sft]
     variants: [aime-2024]
-    applicable_methods: [oren, guided, paraphrase]
+    applicable_methods: [oren, paraphrase]
     trustworthiness_default: clean
     data_source: hf
     data_id: TBD
@@ -173,7 +172,7 @@ benchmarks:
     tiers: [p1-sft]
     stage_targets: [sft]
     variants: [math, gsm-plus, gsm1k]
-    applicable_methods: [oren, guided, paraphrase, memlens, mink_plus_plus, spv_mia]
+    applicable_methods: [oren, paraphrase, memlens, mink_plus_plus, spv_mia]
     trustworthiness_default: suspect
     data_source: hf
     data_id: HuggingFaceH4/MATH-500
@@ -186,7 +185,7 @@ benchmarks:
     tiers: [p1-sft]
     stage_targets: [sft]
     variants: [simpleqa]
-    applicable_methods: [paraphrase, canary, guided]
+    applicable_methods: [paraphrase, canary]
     trustworthiness_default: suspect
     data_source: hf
     data_id: TBD
@@ -199,7 +198,7 @@ benchmarks:
     tiers: [p1-sft]
     stage_targets: [sft]
     variants: []
-    applicable_methods: [paraphrase, canary, guided]
+    applicable_methods: [paraphrase, canary]
     trustworthiness_default: suspect
     data_source: hf
     data_id: basicv8vc/SimpleQA
@@ -311,7 +310,7 @@ benchmarks:
     tiers: [experimental]
     stage_targets: [base, sft]
     variants: [mmlu-cf]
-    applicable_methods: [oren, guided, ts_guessing, perm_option, paraphrase, mink_plus_plus, spv_mia, memlens]
+    applicable_methods: [oren, ts_guessing, perm_option, paraphrase, mink_plus_plus, spv_mia, memlens]
     trustworthiness_default: suspect
     data_source: hf
     data_id: cais/mmlu
@@ -324,7 +323,7 @@ benchmarks:
     tiers: [experimental]
     stage_targets: [base, sft]
     variants: [gsm1k, gsm-plus]
-    applicable_methods: [oren, guided, paraphrase, memlens, mink_plus_plus, spv_mia]
+    applicable_methods: [oren, paraphrase, memlens, mink_plus_plus, spv_mia]
     trustworthiness_default: suspect
     data_source: hf
     data_id: gsm8k
@@ -338,7 +337,7 @@ benchmarks:
     tiers: [experimental]
     stage_targets: [base]
     variants: [lbpp, mhpp]
-    applicable_methods: [oren, guided, paraphrase, mink_plus_plus, spv_mia]
+    applicable_methods: [oren, paraphrase, mink_plus_plus, spv_mia]
     trustworthiness_default: suspect
     data_source: hf
     data_id: openai_humaneval
@@ -351,7 +350,7 @@ benchmarks:
     tiers: [experimental]
     stage_targets: [base]
     variants: [lbpp, mhpp]
-    applicable_methods: [oren, guided, paraphrase]
+    applicable_methods: [oren, paraphrase]
     trustworthiness_default: suspect
     data_source: hf
     data_id: mbpp

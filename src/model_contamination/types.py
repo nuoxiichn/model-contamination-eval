@@ -35,7 +35,6 @@ BenchmarkFormat = Literal[
 
 MethodTag = Literal[
     "oren",
-    "guided",
     "ts_guessing",
     "perm_option",
     "paraphrase",
