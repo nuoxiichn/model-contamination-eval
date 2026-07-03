@@ -1,7 +1,6 @@
 """vLLM 后端（高吞吐，远程机首选）。
 
-Phase 2 实装。vLLM 0.5+ 已支持 logprobs；hidden_states 不直接支持，
-需要时回退到 hf_local 跑 MemLens。
+Phase 2 实装。vLLM 0.5+ 已支持 logprobs。
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ class VLLMModel(ModelInterface):
         raise NotImplementedError("Phase 2: 实装 vLLM 后端")
 
     def supports(self, cap: Capability) -> bool:
-        # vLLM 不直接暴露 hidden_states / layer logits
         return cap in {Capability.LOGPROBS, Capability.BATCH, Capability.GENERATE}
 
     def generate(self, prompt: str, max_tokens: int = 256, temperature: float = 0.0) -> str:

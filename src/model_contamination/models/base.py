@@ -3,7 +3,7 @@
 所有检测方法只依赖 ModelInterface，不直接耦合 transformers / vllm / API。
 不同后端（HF local、vLLM、远程 API）各自实现这个抽象。
 
-调用方在使用进阶能力（logprobs / hidden_states）前必须先调 supports()
+调用方在使用进阶能力（logprobs / token_logprob_stats）前必须先调 supports()
 检查，以便方法层能 graceful degrade 而不是崩。
 """
 
@@ -20,8 +20,6 @@ class Capability(str, Enum):
 
     LOGPROBS = "logprobs"              # 给定 prompt + completion，返回每 token 的 log p
     TOKEN_DIST_STATS = "token_dist_stats"  # 每个位置全 vocab 分布的均值/方差（Min-K%++ 需要）
-    HIDDEN_STATES = "hidden_states"    # 各层 hidden states（MemLens 需要）
-    LOGITS_LENS = "logits_lens"        # 中间层 unembedding 后的 logits（MemLens 严格需要）
     BATCH = "batch"                    # 支持批量推理
     GENERATE = "generate"              # 自由生成（黑盒方法必需）
 
@@ -31,7 +29,6 @@ class ModelInterface(ABC):
 
     name: str
     stage_tag: str          # base / sft / rlhf
-    n_layers: int | None = None  # MemLens / 探针需要
 
     @abstractmethod
     def supports(self, cap: Capability) -> bool:
@@ -58,6 +55,26 @@ class ModelInterface(ABC):
             "check supports(Capability.LOGPROBS) before calling."
         )
 
+    def next_token_logprobs(
+        self, prompt: str, candidate_completions: list[str]
+    ) -> np.ndarray:
+        """一次评估同一 prompt 下多个 completion 的 log p 之和。
+
+        用于 perm_option 这类"同题多候选"场景（10 个字母只做 1 次 forward
+        而不是 10 次）。返回 shape=(len(candidate_completions),)，每格是
+        对应 completion 各 token log p 之和（≈ logprobs(prompt, c).sum()）。
+
+        默认实现：逐 candidate 回退到 logprobs()（正确但慢）。
+        HFLocalModel 等具体后端应 override，对全为单 token 的 candidates
+        做 1 次 forward + 词表 lookup。
+
+        前置：supports(Capability.LOGPROBS) is True。
+        """
+        out = np.empty(len(candidate_completions), dtype=np.float64)
+        for i, c in enumerate(candidate_completions):
+            out[i] = float(np.sum(self.logprobs(prompt, c)))
+        return out
+
     def token_logprob_stats(self, prompt: str, completion: str) -> dict[str, np.ndarray]:
         """返回 completion 每个 token 位置的 (chosen_logp, mu, sigma)。
 
@@ -75,17 +92,3 @@ class ModelInterface(ABC):
             f"{type(self).__name__} does not implement token_logprob_stats; "
             "check supports(Capability.TOKEN_DIST_STATS) before calling."
         )
-
-    def hidden_states(self, prompt: str) -> np.ndarray | None:
-        """返回 shape=(n_layers+1, seq_len, hidden_dim) 的 hidden states。
-
-        默认 None；HF local backend 应覆写。
-        """
-        return None
-
-    def layer_logits(self, prompt: str, target_token: str) -> np.ndarray | None:
-        """各层经 unembedding 后 target_token 的 logit / probability 轨迹（MemLens 用）。
-
-        默认 None；只在 hidden_states + 共享 unembedding 可访问时实现。
-        """
-        return None
