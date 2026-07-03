@@ -29,10 +29,6 @@ spv_mia:
   n_neighbors: 10
   noise_scale: 0.1
 
-memlens:
-  layer_range: [0, 16]   # 早期层范围（与总层数 / 2 取较小者）
-  shortcut_threshold: 0.5  # 早期层概率 > 此值视为 shortcut
-
 canary:
   pretrain_canary_path: ./data/canary/pretrain.jsonl
   sft_canary_path: ./data/canary/sft.jsonl
@@ -55,6 +51,6 @@ stages:
   base:
     methods: [oren, mink_plus_plus, perm_option, family_diff]
   sft:
-    methods: [oren, spv_mia, memlens, paraphrase, log_prober, family_diff, canary]
+    methods: [oren, spv_mia, paraphrase, log_prober, family_diff, canary]
   rlhf:
     methods: [oren, self_critique, paraphrase, family_diff, canary]

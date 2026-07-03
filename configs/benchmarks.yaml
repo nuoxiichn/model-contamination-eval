@@ -26,7 +26,6 @@
 #   paraphrase     Paraphrase Stress Test（黑盒）
 #   mink_plus_plus Min-K%++（灰盒）
 #   spv_mia        SPV-MIA（灰盒，SFT 阶段最强）
-#   memlens        MemLens 早期层探测（白盒，需 hidden states）
 #   log_prober     LogProber（灰盒）
 #   self_critique  Self-Critique（黑盒，RLHF 后唯一可用）
 #   canary         Canary 召回率（黑盒，前置：注入过）
@@ -45,7 +44,7 @@ benchmarks:
     stage_targets: [base, sft]
     cross_stage_anchor: true
     variants: [mmlu-cf, mmmlu]
-    applicable_methods: [oren, ts_guessing, perm_option, paraphrase, mink_plus_plus, spv_mia, memlens]
+    applicable_methods: [oren, ts_guessing, perm_option, paraphrase, mink_plus_plus, spv_mia]
     trustworthiness_default: suspect
     data_source: hf
     data_id: TIGER-Lab/MMLU-Pro
@@ -59,7 +58,7 @@ benchmarks:
     stage_targets: [base, sft]
     cross_stage_anchor: true
     variants: []
-    applicable_methods: [oren, perm_option, paraphrase, mink_plus_plus, spv_mia, memlens]
+    applicable_methods: [oren, perm_option, paraphrase, mink_plus_plus, spv_mia]
     trustworthiness_default: suspect
     data_source: hf
     data_id: Idavidrein/gpqa
@@ -74,7 +73,7 @@ benchmarks:
     stage_targets: [base, sft]
     cross_stage_anchor: true
     variants: [gsm-plus, gsm1k, mgsm]
-    applicable_methods: [oren, paraphrase, memlens, mink_plus_plus, spv_mia]
+    applicable_methods: [oren, paraphrase, mink_plus_plus, spv_mia]
     trustworthiness_default: suspect
     data_source: hf
     data_id: EleutherAI/hendrycks_math
@@ -172,7 +171,7 @@ benchmarks:
     tiers: [p1-sft]
     stage_targets: [sft]
     variants: [math, gsm-plus, gsm1k]
-    applicable_methods: [oren, paraphrase, memlens, mink_plus_plus, spv_mia]
+    applicable_methods: [oren, paraphrase, mink_plus_plus, spv_mia]
     trustworthiness_default: suspect
     data_source: hf
     data_id: HuggingFaceH4/MATH-500
@@ -310,7 +309,7 @@ benchmarks:
     tiers: [experimental]
     stage_targets: [base, sft]
     variants: [mmlu-cf]
-    applicable_methods: [oren, ts_guessing, perm_option, paraphrase, mink_plus_plus, spv_mia, memlens]
+    applicable_methods: [oren, ts_guessing, perm_option, paraphrase, mink_plus_plus, spv_mia]
     trustworthiness_default: suspect
     data_source: hf
     data_id: cais/mmlu
@@ -323,7 +322,7 @@ benchmarks:
     tiers: [experimental]
     stage_targets: [base, sft]
     variants: [gsm1k, gsm-plus]
-    applicable_methods: [oren, paraphrase, memlens, mink_plus_plus, spv_mia]
+    applicable_methods: [oren, paraphrase, mink_plus_plus, spv_mia]
     trustworthiness_default: suspect
     data_source: hf
     data_id: gsm8k

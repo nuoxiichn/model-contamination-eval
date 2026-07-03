@@ -9,8 +9,6 @@
   token 一致（BPE 边界问题）
 - generate temperature=0 走 greedy（do_sample=False）
 - 默认 padding_side='left'，便于左 padding 的 generation
-- LOGITS_LENS 当前不支持，需要 unembedding 与中间 hidden_states 一起算，后续
-  与 stage_sft/memlens 配套实装
 """
 
 from __future__ import annotations
@@ -76,7 +74,6 @@ class HFLocalModel(ModelInterface):
         self._model.eval()
 
         cfg = self._model.config
-        self.n_layers = getattr(cfg, "num_hidden_layers", None) or getattr(cfg, "n_layer", None)
         self._max_position = (
             getattr(cfg, "max_position_embeddings", None)
             or getattr(cfg, "n_positions", None)
@@ -86,16 +83,11 @@ class HFLocalModel(ModelInterface):
     # ----------------------------- capabilities ----------------------------- #
 
     def supports(self, cap: Capability) -> bool:
-        if cap == Capability.LOGITS_LENS:
-            # MemLens 需要把中间层 hidden state 过 lm_head；先标 False，
-            # 实装 stage_sft/memlens 时再开
-            return False
         return cap in {
             Capability.GENERATE,
             Capability.BATCH,
             Capability.LOGPROBS,
             Capability.TOKEN_DIST_STATS,
-            Capability.HIDDEN_STATES,
         }
 
     # ----------------------------- generation ----------------------------- #
@@ -171,6 +163,60 @@ class HFLocalModel(ModelInterface):
         token_logp = pred_logits.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
         return token_logp.detach().cpu().numpy().astype(np.float64)
 
+    def next_token_logprobs(
+        self, prompt: str, candidate_completions: list[str]
+    ) -> np.ndarray:
+        """1 次 prompt forward + 词表 lookup 同时算多个 candidate 的 logp 和。
+
+        快路径：所有 candidate 在 prompt 后延续都是同一起始位置的 1 个 token
+        （例：" A"/" B" 各 1 token）→ 1 次 prompt forward 后从末位 log_softmax
+        里 gather 出各 candidate 的 token id 即可，避免 N 次前向。
+
+        慢路径：任一 candidate 分词后 > 1 token（多字节字符 / 未成子词） →
+        回退到 base 类的逐 candidate 循环。
+
+        约定：多 token candidate 的返回值 = 所有 token log p 之和，与 base 类
+        默认实现（sum(logprobs)）等价。
+        """
+        if not candidate_completions:
+            return np.zeros(0, dtype=np.float64)
+
+        # 先编码 prompt 与 prompt+candidate，判断每个 candidate 是否为 1-token 延续
+        prompt_ids = self._tokenizer(
+            prompt, return_tensors="pt", add_special_tokens=True
+        )["input_ids"]
+        prompt_len = prompt_ids.shape[1]
+
+        cand_token_ids: list[int | None] = []
+        for c in candidate_completions:
+            full = self._tokenizer(
+                prompt + c, return_tensors="pt", add_special_tokens=True
+            )["input_ids"]
+            if full.shape[1] == prompt_len + 1:
+                cand_token_ids.append(int(full[0, prompt_len].item()))
+            else:
+                cand_token_ids.append(None)  # multi-token → slow path
+
+        # 若全为单 token：走快路径，1 次 forward
+        if all(tid is not None for tid in cand_token_ids):
+            # context 守护：prompt 超长时按 logprobs 同样规则左截断
+            trimmed_ids = prompt_ids
+            if self._max_position is not None and prompt_len > self._max_position:
+                trimmed_ids = prompt_ids[:, prompt_len - self._max_position :]
+            trimmed_ids = trimmed_ids.to(self._device)
+            with self._torch.no_grad():
+                logits = self._model(input_ids=trimmed_ids).logits  # (1, L, vocab)
+            last_logp = self._torch.log_softmax(logits[0, -1, :].float(), dim=-1)
+            picks = self._torch.tensor(cand_token_ids, device=self._device)
+            out = last_logp.index_select(0, picks).detach().cpu().numpy().astype(np.float64)
+            return out
+
+        # 混合场景：逐 candidate 回退
+        out = np.empty(len(candidate_completions), dtype=np.float64)
+        for i, c in enumerate(candidate_completions):
+            out[i] = float(np.sum(self.logprobs(prompt, c)))
+        return out
+
     # ----------------------------- token-level distribution stats ----------------------------- #
 
     def token_logprob_stats(self, prompt: str, completion: str) -> dict[str, np.ndarray]:
@@ -219,14 +265,3 @@ class HFLocalModel(ModelInterface):
             "mu": mu_aligned.detach().cpu().numpy().astype(np.float64),
             "sigma": sigma_aligned.detach().cpu().numpy().astype(np.float64),
         }
-
-    # ----------------------------- hidden_states ----------------------------- #
-
-    def hidden_states(self, prompt: str) -> np.ndarray | None:
-        ids = self._tokenizer(prompt, return_tensors="pt", add_special_tokens=True)["input_ids"]
-        ids = ids.to(self._device)
-        with self._torch.no_grad():
-            out = self._model(input_ids=ids, output_hidden_states=True)
-        # out.hidden_states: tuple of (n_layers+1) tensors of shape (1, seq_len, hidden_dim)
-        stacked = self._torch.stack(out.hidden_states, dim=0)  # (n_layers+1, 1, seq, hidden)
-        return stacked.squeeze(1).detach().cpu().float().numpy()

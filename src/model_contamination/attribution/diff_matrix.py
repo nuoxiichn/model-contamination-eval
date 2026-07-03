@@ -122,7 +122,6 @@ _SIGNAL_DIRECTION: dict[str, str] = {
     "oren": "lower_is_dirtier",          # p_value 越小越可疑
     "ts_guessing": "higher_is_dirtier",  # 猜中率越高越可疑
     "canary": "higher_is_dirtier",       # 留存率越高越可疑
-    "memlens": "higher_is_dirtier",
     "log_prober": "higher_is_dirtier",
     "self_critique": "higher_is_dirtier",
     "paraphrase": "lower_is_dirtier",
