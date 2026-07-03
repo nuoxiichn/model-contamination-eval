@@ -120,6 +120,41 @@ def test_mc_blackbox_fallback():
     assert evaluate_accuracy(model, [q]) == 1.0
 
 
+class _FakeChatTokenizer:
+    """最小 chat tokenizer 模拟：apply_chat_template 返回 user/assistant 标记的字符串。"""
+
+    def apply_chat_template(
+        self, messages: list[dict], tokenize: bool = False, add_generation_prompt: bool = True
+    ) -> str:
+        user = messages[0]["content"]
+        return f"<|user|>{user}<|assistant|>"
+
+
+class _MockChatLogprobModel(_MockLogprobModel):
+    """支持 logprobs + 有 chat template：验证路由强制走黑盒。"""
+
+    def __init__(self, gen_output: str) -> None:
+        super().__init__({})
+        self._tokenizer = _FakeChatTokenizer()
+        self._gen = gen_output
+
+    def generate(self, prompt: str, max_tokens: int = 256, temperature: float = 0.0) -> str:
+        return self._gen
+
+
+def test_mc_chat_model_forces_blackbox_over_logprobs():
+    """有 chat template 的模型（即便支持 logprobs）也应走黑盒字母输出路径。
+
+    根因：`mean-logprob over raw choice text` 与 chat SFT 训练分布不匹配，信号被噪声
+    淹没（v3 smoke: mmlu_heavy × mmlu-pro acc_orig=0.1）。
+    """
+    q = _mc_q(["red", "blue", "green"], answer_index=1)
+    # logprob 侧故意让 " red" 最高——若路由错误会答 A（错）；黑盒返回 "B" → 应答对
+    model = _MockChatLogprobModel(gen_output=" B")
+    model._scores = {" red": -1.0, " blue": -5.0, " green": -3.0}
+    assert evaluate_accuracy(model, [q]) == 1.0
+
+
 # ----------------------------- math_cot dispatch ----------------------------- #
 
 

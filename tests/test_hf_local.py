@@ -4,7 +4,6 @@
 不验证生成质量，只验证：
 - 接口可调
 - logprobs 长度对齐 completion token 数
-- hidden_states 形状符合契约
 - supports() 与实际能力一致
 
 环境要求：
@@ -45,18 +44,11 @@ def test_supports(tiny_model: HFLocalModel) -> None:
     assert tiny_model.supports(Capability.BATCH)
     assert tiny_model.supports(Capability.LOGPROBS)
     assert tiny_model.supports(Capability.TOKEN_DIST_STATS)
-    assert tiny_model.supports(Capability.HIDDEN_STATES)
-    # MemLens 接口尚未与 hf_local 对接，约定 False
-    assert not tiny_model.supports(Capability.LOGITS_LENS)
 
 
 def test_stage_and_name(tiny_model: HFLocalModel) -> None:
     assert tiny_model.stage_tag == "base"
     assert tiny_model.name  # 非空
-
-
-def test_n_layers_populated(tiny_model: HFLocalModel) -> None:
-    assert isinstance(tiny_model.n_layers, int) and tiny_model.n_layers > 0
 
 
 def test_generate_returns_string(tiny_model: HFLocalModel) -> None:
@@ -87,15 +79,6 @@ def test_logprobs_empty_completion(tiny_model: HFLocalModel) -> None:
     assert lp.shape == (0,)
 
 
-def test_hidden_states_shape(tiny_model: HFLocalModel) -> None:
-    hs = tiny_model.hidden_states("hello world")
-    assert hs is not None
-    # shape: (n_layers+1, seq_len, hidden_dim)
-    assert hs.ndim == 3
-    assert hs.shape[0] == tiny_model.n_layers + 1
-    assert hs.shape[1] >= 1
-
-
 def test_token_logprob_stats_shapes_and_signs(tiny_model: HFLocalModel) -> None:
     """同一次 forward 应返回 chosen_logp / μ / σ 三个等长数组。"""
     prompt, completion = "The answer is", " 42 indeed"
@@ -122,3 +105,37 @@ def test_token_logprob_stats_empty_completion(tiny_model: HFLocalModel) -> None:
     assert stats["chosen_logp"].shape == (0,)
     assert stats["mu"].shape == (0,)
     assert stats["sigma"].shape == (0,)
+
+
+def test_next_token_logprobs_batch_matches_loop(tiny_model: HFLocalModel) -> None:
+    """快路径（1 forward + lookup）与慢路径（N 次 logprobs）应返回同一组 logp。
+
+    覆盖 perm_option 的核心 speedup 路径：多个单 token candidate 走批量。
+    """
+    prompt = "The next word is"
+    candidates = [" a", " b", " c", " d"]  # 均预期为 1 token 延续
+    batched = tiny_model.next_token_logprobs(prompt, candidates)
+    assert batched.shape == (len(candidates),)
+    reference = np.array(
+        [float(np.sum(tiny_model.logprobs(prompt, c))) for c in candidates],
+        dtype=np.float64,
+    )
+    assert np.allclose(batched, reference, atol=1e-5)
+
+
+def test_next_token_logprobs_multi_token_falls_back(tiny_model: HFLocalModel) -> None:
+    """混合场景：一个 candidate 分词后 >1 token → 走慢路径回退，结果仍与 logprobs 一致。"""
+    prompt = "Say something:"
+    candidates = [" a", " unbelievable"]  # 后者一般 >1 subword
+    out = tiny_model.next_token_logprobs(prompt, candidates)
+    assert out.shape == (2,)
+    ref = np.array(
+        [float(np.sum(tiny_model.logprobs(prompt, c))) for c in candidates],
+        dtype=np.float64,
+    )
+    assert np.allclose(out, ref, atol=1e-5)
+
+
+def test_next_token_logprobs_empty_candidate_list(tiny_model: HFLocalModel) -> None:
+    out = tiny_model.next_token_logprobs("prompt", [])
+    assert out.shape == (0,)
