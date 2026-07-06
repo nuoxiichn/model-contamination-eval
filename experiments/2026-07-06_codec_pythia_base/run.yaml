@@ -1,0 +1,36 @@
+# CoDeC 小规模复现：Pythia-2.8b（base）上 seen vs unseen 分离
+# 论文：Detecting Data Contamination in LLMs via In-Context Learning (arXiv:2510.27055)
+
+model:
+  name: pythia-2.8b
+  path: /mnt/public/code/chennuoxi/hf_cache/models/C2_pythia-2.8b
+  stage_tag: base
+
+codec:
+  n_context: 1
+  n_seeds: 5
+  skip_first_tokens: 10
+  # 论文每数据集 ~1000 样本；小规模验证取 300 已足够稳定（论文称 100 即稳）
+  n_samples: 300
+
+# seen：Pythia 训练语料 Pile 的子集。
+# 论文用 gated 的 iamgroot42/mimir；这里改用非 gated 的 NeelNanda/pile-10k
+# （Pile 公开 10k 采样，同为 Pythia 训练语料），按 meta.pile_set_name 过滤子集，
+# 避免 gated 数据集需要 HF token 授权（红线）。
+seen:
+  - key: pile-arxiv
+    pile_set_name: ArXiv
+  - key: pile-wikipedia
+    pile_set_name: Wikipedia (en)
+
+# unseen：均发布晚于 Pythia 训练截止，Pythia 未见过
+# （仅列已在 loader._NORMALIZERS 注册的 benchmark）
+unseen:
+  - key: gsm8k
+    loader: gsm8k
+  - key: mmlu-pro
+    loader: mmlu-pro
+  - key: math-500
+    loader: math-500
+
+# 预期（论文 Pythia 上）：seen ≈ 100%，unseen < 60%，清晰分离

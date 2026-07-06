@@ -44,6 +44,7 @@ MethodTag = Literal[
     "self_critique",
     "canary",
     "family_diff",
+    "codec",
 ]
 
 

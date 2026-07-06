@@ -1,0 +1,31 @@
+# CoDeC finetuning 注入实验（论文 arXiv:2510.27055 §3.3 / Fig 6）
+# 对每个目标数据集独立 finetune 一份 Pythia-2.8b，追踪 CoDeC 分数从 base 升到 >90%
+
+model:
+  name: pythia-2.8b
+  path: /mnt/public/code/chennuoxi/hf_cache/models/C2_pythia-2.8b
+  stage_tag: base
+  dtype: bfloat16       # 全参 finetune 用 bf16，避免 fp16 反向数值不稳
+
+train:
+  lr: 3.0e-5            # 论文 Fig 8：lr≈3e-5 时 ICL 与 finetuning 曲线重合
+  n_batches: 60        # 论文横轴到 ~60 batch
+  batch_size: 8        # 8 卡机可放大；单卡显存紧时减小
+  max_len: 256         # 题面文本一般较短，256 足够
+  eval_every: 10       # 每 10 batch 算一次 CoDeC（batch=0 是 base 分数）
+  gradient_checkpointing: true   # 单卡省显存；DDP 下可关
+  seed: 42
+
+codec:
+  n_context: 1
+  n_seeds: 5
+  skip_first_tokens: 10
+  n_eval: 300          # 与前一实验一致
+
+# 注入目标：三个原本 unseen 的数据集（base CoDeC 分数分别 0.027 / 0.163 / 0.178）
+targets:
+  - loader: gsm8k
+  - loader: mmlu-pro
+  - loader: math-500
+
+# 预期：每条曲线从 base 分数稳定升到 >90%（论文 Fig 6）
