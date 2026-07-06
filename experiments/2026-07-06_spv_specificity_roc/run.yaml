@@ -1,0 +1,61 @@
+# SPV-MIA 进阶实验：特异性 / 跨benchmark / 阈值标定
+# per-sample AUC 协议：member=注入题，non-member=同 bench held-out 题（同分布 → 免疫 Finding 8）
+#
+# 跑法（8 卡机容器内，与 calibration v3 同环境）：
+#   HF_ENDPOINT=https://hf-mirror.com HF_DATASETS_CACHE=/mnt/public/code/chennuoxi/hf_cache \
+#   PYTHONPATH=src python3 experiments/2026-07-06_spv_specificity_roc/run_spv_roc.py
+
+reference:                       # SPV-MIA 的 base reference（LoRA 场景天然 reference）
+  name: base
+  path: /mnt/public/model/huggingface/Qwen3-1.7B-Base   # 已从 Qwen/ 迁到 huggingface/
+  stage_tag: base
+
+params:
+  device: cuda
+  dtype: bfloat16
+  spv_mia:                       # 与 calibration v3 同参，结果可比
+    n_neighbors: 10
+    mask_ratio: 0.20
+    min_samples: 30
+    paraphraser: random
+    seed: 42
+  roc:
+    target_fprs: [0.01, 0.05]    # 在这些 FPR 处报 TPR + operating threshold
+  verdict:                       # benchmark 级裁决阈值（与 spv_mia.py 常量一致）
+    auc_dirty: 0.70
+    auc_suspect: 0.60
+
+skip_missing_checkpoints: true   # math_general/code_general 未训完时先跳过（Phase B 补）
+
+# member/non-member 题集（jsonl，每行一个 BenchmarkQuestion dict）
+# member 探针集复用 2026-06-27 注入缓存；held-out/non-member 用本目录 dump_heldout.py 产物
+sets:
+  gsm8k_member:      ../2026-06-27_sft_contam_gt/questions_cache/gsm8k.jsonl
+  gsm8k_heldout:     questions_cache/gsm8k_heldout.jsonl
+  humaneval_member:  ../2026-06-27_sft_contam_gt/questions_cache/humaneval.jsonl
+  mbpp_nonmember:    questions_cache/mbpp_nonmember.jsonl
+
+checkpoints:         # 去重加载：脚本按 target 分组，每个 ckpt 只 load 一次
+  gsm8k_light:     /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/gsm8k_light_merged
+  gsm8k_medium:    /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/gsm8k_medium_merged
+  gsm8k_heavy:     /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/gsm8k_heavy_merged
+  clean:           /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/clean_merged
+  humaneval_heavy: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/humaneval_heavy_merged
+  math_general:    /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/math_general_merged   # Phase B
+  code_general:    /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/code_general_merged   # Phase B
+
+# 实验矩阵：每格 spv_mia(target, base, spec, member, control=nonmember)
+# slice: [start, end] 用于同集切半（跨bench 行6：两半都是未见题）
+matrix:
+  - {id: 1, target: gsm8k_light,     spec: gsm8k,    member: gsm8k_member,     nonmember: gsm8k_heldout, role: exp3_dose_light,  expect: mid}
+  - {id: 2, target: gsm8k_medium,    spec: gsm8k,    member: gsm8k_member,     nonmember: gsm8k_heldout, role: exp3_dose_medium, expect: high}
+  - {id: 3, target: gsm8k_heavy,     spec: gsm8k,    member: gsm8k_member,     nonmember: gsm8k_heldout, role: exp3_dose_heavy,  expect: very_high}
+  - {id: 4, target: clean,           spec: gsm8k,    member: gsm8k_member,     nonmember: gsm8k_heldout, role: neg_control,      expect: chance}
+  - {id: 5, target: math_general,    spec: gsm8k,    member: gsm8k_member,     nonmember: gsm8k_heldout, role: exp1_fp_math,     expect: chance}
+  - {id: 6, target: gsm8k_heavy,     spec: evalplus, member: humaneval_member, nonmember: humaneval_member, member_slice: [0, 82], nonmember_slice: [82, 164], role: exp2_cross_gsm2he, expect: chance}
+  - {id: 7, target: humaneval_heavy, spec: evalplus, member: humaneval_member, nonmember: mbpp_nonmember, role: exp3_code,        expect: high}
+  - {id: 8, target: code_general,    spec: evalplus, member: humaneval_member, nonmember: mbpp_nonmember, role: exp1_fp_code,     expect: chance}
+  - {id: 9, target: humaneval_heavy, spec: gsm8k,    member: gsm8k_member,     nonmember: gsm8k_heldout, role: exp2_cross_he2gsm, expect: chance}
+
+outputs:
+  path: outputs/2026-07-06_spv_specificity_roc/
