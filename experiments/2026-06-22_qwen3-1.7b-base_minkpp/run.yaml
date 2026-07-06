@@ -1,0 +1,31 @@
+model: /mnt/public/model/Qwen/Qwen3-1.7B-Base
+stage: base
+method: mink_plus_plus
+purpose: |
+  Min-K%++ 实装后的首次真模型 smoke。验证 plumbing 与 base 阶段 AUC 的方向性。
+  GSM8K 在 Qwen3 预训练语料中大概率出现，作为 "疑似见过" target；
+  MATH-500 是相对新颖的对照（清洁性未实证，但发布晚于 GSM8K 且来源不同），作 control。
+  CLAUDE.md 红线：positive control 未到位前不出绝对裁决；本实验只看 AUC 方向与
+  delta_mean 符号是否符合 "target > control" 的预期。
+
+params:
+  k_ratio: 0.2
+  limit_target: 200      # GSM8K
+  limit_control: 200     # MATH-500 全集刚好 500，截 200 保持等量
+  min_samples: 30
+  device: cuda
+  dtype: bfloat16
+
+datasets:
+  target:
+    name: gsm8k
+    data_id: gsm8k
+    subset: main
+    split: test
+  control:
+    name: math-500
+    data_id: HuggingFaceH4/MATH-500
+    split: test
+
+outputs:
+  path: outputs/qwen3-1.7b-base_minkpp/  # 不进 git

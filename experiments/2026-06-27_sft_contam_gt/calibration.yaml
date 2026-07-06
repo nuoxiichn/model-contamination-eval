@@ -1,0 +1,97 @@
+purpose: |
+  SFT 污染 GT calibration 评测：7 ckpt × 3 bench × 2 方法 = 42 次评测。
+  本批次产出落点表（plan.md §5），作为后续报告生成器的阈值锚。
+
+  前置：周日上午 LoRA merge 必须先做完——本 yaml 的 checkpoint.path
+  指向 *merged* 模型目录，不是 LoRA adapter 目录。merge 命令示例：
+      llamafactory-cli export \
+          --model_name_or_path /mnt/public/model/Qwen/Qwen3-1.7B-Base \
+          --adapter_name_or_path /mnt/.../LlamaFactory/saves/contam/clean \
+          --template qwen3 --finetuning_type lora \
+          --export_dir /mnt/.../LlamaFactory/saves/contam/clean_merged \
+          --export_size 5
+
+  红线：未做 positive control 之前不出绝对裁决；本表只产出 ranked signal。
+
+checkpoints:
+  # 原始 base：所有 SFT ckpt 的对照。stage_tag=base
+  - name: base
+    path: /mnt/public/model/Qwen/Qwen3-1.7B-Base
+    stage_tag: base
+  # Clean SFT：negative control（同超参、无污染）
+  - name: clean
+    path: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/clean_merged
+    stage_tag: sft
+  - name: gsm8k_light
+    path: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/gsm8k_light_merged
+    stage_tag: sft
+  - name: gsm8k_medium
+    path: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/gsm8k_medium_merged
+    stage_tag: sft
+  - name: gsm8k_heavy
+    path: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/gsm8k_heavy_merged
+    stage_tag: sft
+  - name: mmlu_heavy
+    path: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/mmlu_heavy_merged
+    stage_tag: sft
+  - name: humaneval_heavy
+    path: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/humaneval_heavy_merged
+    stage_tag: sft
+
+benchmarks:
+  # spec_name 对应 configs/benchmarks.yaml 中的 entry；
+  # manifest 为 prep_bench_to_sft.py 产生的注入 manifest（题号 + sha1）。
+  - name: gsm8k
+    spec_name: gsm8k
+    manifest: manifests/gsm8k.jsonl
+  - name: mmlu-pro
+    spec_name: mmlu-pro
+    manifest: manifests/mmlu-pro.jsonl
+  - name: humaneval
+    spec_name: evalplus
+    manifest: manifests/humaneval.jsonl
+
+methods:
+  - mink_plus_plus
+  - spv_mia
+
+params:
+  device: cuda
+  dtype: bfloat16
+  # mink_plus_plus
+  mink_plus_plus:
+    k_ratio: 0.2
+    min_samples: 30
+    # 不传 control_questions → mode="mean_only"，signal=estimator(target_scores)
+    # 这样 7 ckpt 跨比较 Δsignal 是 calibration 信号，避开缺 code 控制集的麻烦
+    use_control: false
+    # 2026-06-29 calibration Finding 5：gsm8k_heavy×gsm8k 200 个分数里 126 个 < -10
+    # 最小 -3825，raw mean=-71/std=296。trim_mean(0.1) 只能 trim 10%，对 63% outlier
+    # 比例不够，改用 median 完全 robust。raw_mean 仍记录在 evidence/csv 里对照。
+    # 注意：这只是 cross-ckpt ranking 的稳健化，不能根治 MinK-pp 在过拟合 ckpt 上的
+    # 方法学问题（heavy training 让 sigma→0 放大 bottom-K% 偏离，本质是真实信号）。
+    estimator: median
+    trim_ratio: 0.1  # estimator='median' 时不生效，保留
+  # spv_mia
+  # v1 简化：LoRA 场景用 base ckpt 当 reference（不训 self-prompt reference model）
+  # paraphraser="random" word-level substitution（v1 唯一支持值）
+  # 详见 src/.../stage_sft/spv_mia.py docstring
+  spv_mia:
+    n_neighbors: 10
+    mask_ratio: 0.20
+    min_samples: 30
+    paraphraser: random
+    seed: 42
+    # 不传 control_questions → mean_only 模式（与 mink_plus_plus 同样的理由）
+    # 跨 ckpt 比 mean(Δpv) 找污染 ckpt：member ckpt 应有 mean(Δpv) << 0
+    use_control: false
+    # base ckpt 作 target 时跳过 spv_mia（target==reference 无意义）
+    skip_when_target_is_base: true
+
+outputs:
+  path: outputs/2026-06-27_sft_contam_gt_calibration/
+  # 落两份：原始 JSON（每个 ckpt × bench × method 一条 DetectionResult）
+  # + 落点 CSV（plan.md §5 表格格式，方便贴 notes.md）
+
+# 缺失 checkpoint 路径时跳过（周末 launch 可能未全做完，允许部分跑）
+skip_missing_checkpoints: true

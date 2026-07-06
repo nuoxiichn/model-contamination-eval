@@ -1,0 +1,59 @@
+purpose: |
+  perm_option calibration：7 ckpt × mmlu-pro 200 题 × n_permutations=5。
+  补救 calibration v3 中 SPV-MIA 在 MMLU-Pro 上全部 degraded 的方法学空白
+  （[[calibration-findings-2026-06-29]] Finding 9 / notes.md §U.5）。
+
+  预期信号方向：
+  - signal = mean_acc_orig - mean_acc_permuted
+  - 干净模型：signal ≈ 0（shuffle 选项不影响识别）
+  - 污染模型：signal > 0（原序记忆比 shuffle 更准）
+  - mmlu_heavy ckpt 应在 mmlu-pro 上显著高于 clean → 验证 U.6 中 mmlu_heavy×gsm8k = -6.12 异常
+
+  perm_option 仅适用 multiple_choice → 只跑 mmlu-pro。base ckpt 一并跑，
+  作为 SFT 前的 perm signal 锚点（SFT 把 (Q, options, A) 文本直接训过会拉高 signal）。
+
+  红线（不变）：未做 positive control 之前不出绝对裁决；本表只产出 ranked signal。
+
+checkpoints:
+  - name: base
+    path: /mnt/public/model/Qwen/Qwen3-1.7B-Base
+    stage_tag: base
+  - name: clean
+    path: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/clean_merged
+    stage_tag: sft
+  - name: gsm8k_light
+    path: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/gsm8k_light_merged
+    stage_tag: sft
+  - name: gsm8k_medium
+    path: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/gsm8k_medium_merged
+    stage_tag: sft
+  - name: gsm8k_heavy
+    path: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/gsm8k_heavy_merged
+    stage_tag: sft
+  - name: mmlu_heavy
+    path: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/mmlu_heavy_merged
+    stage_tag: sft
+  - name: humaneval_heavy
+    path: /mnt/public/code/chennuoxi/LlamaFactory/saves/contam/humaneval_heavy_merged
+    stage_tag: sft
+
+benchmarks:
+  - name: mmlu-pro
+    spec_name: mmlu-pro
+    manifest: manifests/mmlu-pro.jsonl
+
+methods:
+  - perm_option
+
+params:
+  device: cuda
+  dtype: bfloat16
+  perm_option:
+    n_permutations: 5
+    min_samples: 50
+    seed: 42
+
+outputs:
+  path: outputs/2026-06-27_sft_contam_gt_perm_option/
+
+skip_missing_checkpoints: true

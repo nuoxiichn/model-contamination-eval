@@ -1,0 +1,58 @@
+# E1.1 anchor 灵敏度实验配置（溯源用；runner 本身 CLI 驱动，此文件不被读取）
+#
+# 对应 实验计划-v2.md §E1.1。真正的参数在 run_anchor.py CLI；这里记 anchor 池
+# 与 bench↔control 映射的权威来源，便于日后 review 时对齐。
+
+experiment: 2026-07-03_anchor_sensitivity
+plan_ref: 实验计划-v2.md §E1.1 / docs/positive_controls.md
+
+# anchor 池（与 run_anchor.py ANCHORS 保持一致）
+anchors:
+  A1:
+    repo: Qwen/Qwen3-1.7B-Base
+    path: /mnt/public/model/Qwen/Qwen3-1.7B-Base
+    role: positive          # 已知 GSM8K 污染（本项目已复现）
+    status: local           # 已在本地
+  A2:
+    repo: mistralai/Mistral-7B-v0.1
+    path: /mnt/public/code/chennuoxi/hf_cache/models/A2_mistral-7b-v0.1
+    role: positive          # ConStat / GSM1k 点名
+    status: downloading     # ⚠️ gated repo，hf-mirror 可能失败
+  A3:
+    repo: microsoft/Phi-3-mini-4k-instruct
+    path: /mnt/public/code/chennuoxi/hf_cache/models/A3_phi-3-mini-4k
+    role: positive          # GSM1k paper 点名
+    status: downloading
+    trust_remote_code: true
+  C1:
+    repo: allenai/OLMo-2-1124-7B
+    path: /mnt/public/code/chennuoxi/hf_cache/models/C1_olmo-2-7b
+    role: negative          # Dolma 全公开，可 self-verify
+    status: downloading
+  C2:
+    repo: EleutherAI/pythia-2.8b
+    path: /mnt/public/code/chennuoxi/hf_cache/models/C2_pythia-2.8b
+    role: negative          # Pile 早于多数 benchmark 发布
+    status: downloading
+
+# bench → clean 对照 bench（AUC 类方法 mink_plus_plus / spv_mia 用）
+bench_control:
+  gsm8k: gsm1k       # ✓ 已补，但仅 50 条公开样本（GSM1k 全量未释放，见 notes）
+  mmlu-pro: mmlu-cf  # ✓ 用 val split（MMLU-CF 无 test split）
+  math: gsm1k
+
+# 部分对照集无 test split，runner 里 BENCH_SPLIT 覆盖
+bench_split:
+  mmlu-cf: val
+
+# 已知不可用作 fallback control：
+#   gsm-plus —— loader._NORMALIZERS 未注册，需先加 normalizer 才能用
+
+# 默认方法集（spv_mia 需 --reference-model；self_critique 是 Phase 3 stub）
+default_methods: [oren, paraphrase, mink_plus_plus, perm_option]
+
+params:
+  n_samples: 200      # oren min_samples=200
+  n_paraphrases: 5
+  seed: 42
+  dtype: bfloat16

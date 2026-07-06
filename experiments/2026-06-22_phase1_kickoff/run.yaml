@@ -1,0 +1,17 @@
+model:
+  checkpoint: hf-internal-testing/tiny-random-gpt2
+  stage: base
+  parent_checkpoint: null     # Phase 1 不需要 reference
+benchmarks:
+  dirty: gsm8k
+  clean: math-500
+methods: [oren, family_diff]
+oren:
+  shard_size: 3               # tiny-gpt2 max_position=512 限制；生产模型用 25
+  min_samples: 6
+  alpha_dirty: 0.01
+  alpha_suspect: 0.05
+limit: 20                     # 每 benchmark 截前 N 题
+device: cpu
+hf_cache: /mnt/public/code/chennuoxi/hf_cache
+hf_endpoint: https://hf-mirror.com

@@ -1,0 +1,35 @@
+purpose: |
+  ΔMIA 实验：同源 base + SFT 在同一 target/control 集上跑 Min-K%++，
+  比较 AUC_sft - AUC_base 的符号与幅度。
+  根据 SaTML 2025 立场论文，单 checkpoint MIA AUC 不可信；
+  但 ΔAUC 在同源对上能抵消 control 集污染、样本结构差异、模型先验难度差异
+  等 confound，是 SFT 阶段污染归因的主信号之一。
+
+  注：本次仍无 positive control（已知污染对照模型），所以 ΔAUC 给出的是
+  *相对* 信号，不出绝对裁决（CLAUDE.md 红线）。
+
+models:
+  base:
+    path: /mnt/public/model/Qwen/Qwen3-1.7B-Base
+    stage_tag: base
+  sft:
+    path: /mnt/public/model/huggingface/Qwen3-1.7B
+    stage_tag: sft
+    # README 显式声明 base_model: Qwen/Qwen3-1.7B-Base，官方同源对
+
+params:
+  k_ratio: 0.2
+  limit_target: 200
+  limit_control: 200
+  min_samples: 30
+  device: cuda
+  dtype: bfloat16
+
+datasets:
+  target:
+    name: gsm8k
+  control:
+    name: math-500
+
+outputs:
+  path: outputs/qwen3-1.7b_delta_mia/
