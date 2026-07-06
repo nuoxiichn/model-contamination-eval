@@ -25,7 +25,7 @@ def attribute_stage(
     2. 同族迁移（RLHF 后变体也涨） → RL 阶段污染
     3. Canary 留存率差异 → 直接定位阶段
 
-    强信号缺失时才用 ΔMIA / ΔOren_p 作为辅助。
+    强信号缺失时才用 ΔMIA 作为辅助。
 
     无 pre-SFT checkpoint 时 conclusion 强制为 unattributable。
     """
@@ -35,7 +35,6 @@ def attribute_stage(
             has_pre_sft_checkpoint=False,
             has_canary=has_canary,
             delta_score=None,
-            delta_oren_p=None,
             delta_mia_auc=None,
             delta_canary=canary_delta,
             family_drop_sft=None,

@@ -12,7 +12,6 @@
 - STRONG_SIGNALS：数据层无法/难以查到的独立方法学
     - `spv_mia`：跨 ckpt MIA，逮改写/蒸馏型污染（Session 8 验证）
     - `paraphrase`：黑盒改写攻击，覆盖数据层 n-gram miss 的场景
-    - `oren`：广义位置/顺序 permutation 显著性检验
     - `family_diff`：任务孤岛诊断，独立于内在信号
     - `canary`：已注入 canary 的留存率，直接定位
 
@@ -43,7 +42,6 @@ from model_contamination.types import (
 STRONG_SIGNALS = {
     "spv_mia",
     "paraphrase",
-    "oren",
     "family_diff",
     "canary",
 }

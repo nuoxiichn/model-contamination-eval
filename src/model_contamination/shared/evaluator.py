@@ -7,7 +7,7 @@
     multiple_choice  → 对每个 choice 算 mean token logprob，argmax 与 answer_index 比
     math_cot         → generate CoT，抽取 \\boxed{...} 或最后一个数字，与 answer 比
 
-family_diff / oren / sanity-check 都直接调这里。
+family_diff / paraphrase 都直接调这里。
 
 第一版只做 MC + math_cot，其他 format raise NotImplementedError。
 

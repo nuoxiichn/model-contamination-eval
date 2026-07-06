@@ -139,7 +139,7 @@ def option_permutation_test(
 def _predict_letter(model: ModelInterface, question: str, choices: list[str]) -> str:
     """对单题一次 forward 拿全部字母的 next-token logp，argmax 出预测字母。
 
-    使用最小提示词避免污染 (Question/Answer 锚点 + 选项行)，与 oren 的 _format_question 风格一致。
+    使用最小提示词避免污染 (Question/Answer 锚点 + 选项行)。
     通过 `model.next_token_logprobs` 批量：HFLocalModel 在字母全为单 token 时
     1 forward 完成，比 N=len(choices) 次 logprobs() 快 5-10×。
     """

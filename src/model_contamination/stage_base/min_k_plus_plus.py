@@ -15,7 +15,7 @@
 - 必须与一个"假定未见过"的 control 集对比，才有 MIA AUC 可言；
 - 无 control 集时，本函数只返回平均 score 作为相对信号，verdict 直接 INCONCLUSIVE。
 
-接口契约（与 oren_permutation_test 对齐）：
+接口契约（与其他 detect 方法对齐）：
     输入 model (灰盒，需 TOKEN_DIST_STATS) + spec + 已加载的 questions [+ control_questions]
     输出 DetectionResult(method="mink_plus_plus", signal=AUC 或 mean_score)
 """

@@ -34,7 +34,6 @@ BenchmarkFormat = Literal[
 ]
 
 MethodTag = Literal[
-    "oren",
     "ts_guessing",
     "perm_option",
     "paraphrase",
@@ -65,7 +64,7 @@ class BenchmarkQuestion:
     prompt: str                       # 题面，不含答案
     answer: str                       # 标准化答案字符串（MC: 'A'/'B'...; math: 数值或 latex）
     choices: list[str] | None = None  # 仅 multiple_choice / cloze 有
-    answer_index: int | None = None   # MC: 答案在 choices 中的下标（perm_option / oren 用）
+    answer_index: int | None = None   # MC: 答案在 choices 中的下标（perm_option 用）
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -97,7 +96,7 @@ class BenchmarkSpec:
 class DetectionResult:
     """所有检测方法的统一返回。
 
-    跨方法做差分（ΔScore / ΔMIA / ΔOren_p）时，归因层只读 signal 字段，
+    跨方法做差分（ΔScore / ΔMIA）时，归因层只读 signal 字段，
     所以同一方法在不同阶段返回的 signal 必须含义一致、可减。
     """
 
@@ -147,7 +146,6 @@ class StageAttribution:
     has_pre_sft_checkpoint: bool
     has_canary: bool
     delta_score: float | None
-    delta_oren_p: float | None
     delta_mia_auc: float | None
     delta_canary: float | None
     family_drop_sft: float | None     # SFT 主-同族

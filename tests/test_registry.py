@@ -33,7 +33,7 @@ def test_get_family():
 
 def test_filter_by_method():
     reg = load_registry()
-    oren_applicable = reg.filter_by_method("oren")
-    assert len(oren_applicable) > 0
-    for spec in oren_applicable:
-        assert "oren" in spec.applicable_methods
+    paraphrase_applicable = reg.filter_by_method("paraphrase")
+    assert len(paraphrase_applicable) > 0
+    for spec in paraphrase_applicable:
+        assert "paraphrase" in spec.applicable_methods

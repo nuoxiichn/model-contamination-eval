@@ -1,4 +1,4 @@
-"""差分矩阵：跨阶段对比同方法 signal，输出 ΔScore / ΔMIA / ΔOren_p / ΔCanary。
+"""差分矩阵：跨阶段对比同方法 signal，输出 ΔScore / ΔMIA / ΔCanary。
 
 对应方案 §5.1 差分对象矩阵。
 
@@ -26,7 +26,6 @@ _RATIO_DENOM_EPS: dict[str, float] = {
     "spv_mia": 0.5,
     "mink_plus_plus": 0.1,
     "perm_option": 0.05,
-    "oren": 0.01,           # p-value，可降到 0.01
     "ts_guessing": 0.05,
     "canary": 0.05,
     "family_diff": 0.5,
@@ -119,7 +118,6 @@ _SIGNAL_DIRECTION: dict[str, str] = {
     "spv_mia": "lower_is_dirtier",      # Δpv 越负越像 member
     "mink_plus_plus": "lower_is_dirtier",  # 单题分数越低越像 member
     "perm_option": "higher_is_dirtier",  # 原位置偏好率越高越可疑
-    "oren": "lower_is_dirtier",          # p_value 越小越可疑
     "ts_guessing": "higher_is_dirtier",  # 猜中率越高越可疑
     "canary": "higher_is_dirtier",       # 留存率越高越可疑
     "log_prober": "higher_is_dirtier",

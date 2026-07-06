@@ -1,6 +1,6 @@
 """文件系统缓存：按 (model_name, benchmark_name, input_hash) 索引。
 
-logprobs 是最贵的计算，跨方法可复用：Oren 与 Min-K%++ 都吃同一份 logprobs。
+logprobs 是最贵的计算，跨方法可复用：Min-K%++ 与 SPV-MIA 都吃同一份 logprobs。
 此缓存让差分归因（base vs SFT vs RLHF）和方法迭代不重算。
 
 约定：
