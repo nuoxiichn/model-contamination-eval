@@ -42,7 +42,6 @@ MethodTag = Literal[
     "log_prober",
     "self_critique",
     "canary",
-    "family_diff",
     "codec",
 ]
 
@@ -111,21 +110,6 @@ class DetectionResult:
 
 
 @dataclass
-class FamilyDiffResult:
-    """同族对照 ΔScore。
-
-    任务孤岛特征：main_score 显著高于 variant_scores 平均 → SFT 阶段污染嫌疑。
-    """
-
-    main_benchmark: str
-    main_score: float
-    variant_scores: dict[str, float]
-    delta_avg: float                  # main - mean(variants)
-    delta_max: float                  # main - min(variants)
-    is_island: bool                   # delta_avg > 阈值
-
-
-@dataclass
 class BenchmarkVerdict:
     """单个 benchmark 跨方法综合裁决，给可信度报告用。"""
 
@@ -148,8 +132,6 @@ class StageAttribution:
     delta_score: float | None
     delta_mia_auc: float | None
     delta_canary: float | None
-    family_drop_sft: float | None     # SFT 主-同族
-    family_drop_rlhf: float | None    # RLHF 主-同族
     conclusion: Literal[
         "pretrain_only",
         "sft_introduced",

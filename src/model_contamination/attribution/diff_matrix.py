@@ -28,7 +28,6 @@ _RATIO_DENOM_EPS: dict[str, float] = {
     "perm_option": 0.05,
     "ts_guessing": 0.05,
     "canary": 0.05,
-    "family_diff": 0.5,
     "paraphrase": 0.05,
 }
 
@@ -123,7 +122,6 @@ _SIGNAL_DIRECTION: dict[str, str] = {
     "log_prober": "higher_is_dirtier",
     "self_critique": "higher_is_dirtier",
     "paraphrase": "lower_is_dirtier",
-    "family_diff": "higher_is_dirtier",  # 主-同族 gap 越大越可疑
 }
 
 

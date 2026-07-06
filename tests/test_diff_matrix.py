@@ -36,7 +36,6 @@ def test_signal_direction_known_methods():
     assert signal_direction_for("spv_mia") == "lower_is_dirtier"
     assert signal_direction_for("mink_plus_plus") == "lower_is_dirtier"
     assert signal_direction_for("perm_option") == "higher_is_dirtier"
-    assert signal_direction_for("family_diff") == "higher_is_dirtier"
 
 
 def test_signal_direction_unknown_defaults_lower():

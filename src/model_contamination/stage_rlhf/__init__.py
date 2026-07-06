@@ -3,5 +3,5 @@
 ⚠️ 关键警示：arXiv:2510.02386 实证 GRPO 一轮即抹除 SFT 阶段 MIA 信号。
 SPV-MIA、Min-K%++ 在此阶段全部退化。
 
-此阶段主要靠 Self-Critique + Paraphrase Stress Test + 同族对照 ΔScore。
+此阶段主要靠 Self-Critique + Paraphrase Stress Test。
 """

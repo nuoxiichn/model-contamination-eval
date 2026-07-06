@@ -11,11 +11,6 @@ max_samples_per_benchmark: 1000
 
 # ============ 各方法默认参数 ============
 
-oren:
-  n_shards: 50          # 数据集切片数
-  alpha: 0.01           # 单侧 t 检验显著性
-  min_samples: 200      # 少于此样本不跑（信号不够）
-
 paraphrase:
   n_paraphrases: 5
   paraphraser: gpt-4-mini    # 或本地小模型；空字符串走规则改写
@@ -33,24 +28,20 @@ canary:
   pretrain_canary_path: ./data/canary/pretrain.jsonl
   sft_canary_path: ./data/canary/sft.jsonl
 
-family_diff:
-  drop_threshold_red: 10    # 同族落差 >10 分 → 红灯候选
-  drop_threshold_yellow: 5  # 5-10 分 → 黄灯候选
-
 # ============ 综合裁决规则 ============
 
 verdict:
   red_min_strong_signals: 2     # 强信号 ≥ 2 → 红灯
   yellow_min_signals: 1
-  strong_signals: [oren, family_diff, canary, paraphrase, spv_mia]
+  strong_signals: [canary, paraphrase, spv_mia]
   weak_signals: [mink_plus_plus, perm_option]
 
 # ============ Stage 默认方法集 ============
 
 stages:
   base:
-    methods: [oren, mink_plus_plus, perm_option, family_diff]
+    methods: [mink_plus_plus, perm_option]
   sft:
-    methods: [oren, spv_mia, paraphrase, log_prober, family_diff, canary]
+    methods: [spv_mia, paraphrase, log_prober, canary]
   rlhf:
-    methods: [oren, self_critique, paraphrase, family_diff, canary]
+    methods: [self_critique, paraphrase, canary]
