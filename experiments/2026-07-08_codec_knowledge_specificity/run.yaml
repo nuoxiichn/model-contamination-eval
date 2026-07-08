@@ -1,0 +1,48 @@
+# CoDeC 记忆 vs 泛化特异性检验
+# 注入「正常数学知识」（非 benchmark 数学文本），看 benchmark 的 CoDeC 会不会被带起来。
+# 若不升 → CoDeC 特异于「见过这批具体文本」，模型数学能力提升不误报。
+
+model:
+  name: pythia-2.8b
+  path: /mnt/public/code/chennuoxi/hf_cache/models/C2_pythia-2.8b
+  dtype: bfloat16          # pythia 训练数值稳（OPT 才需 fp32）
+
+train:
+  lr: 3.0e-5
+  total_batches: 40        # 纯注入，40 batch 足够饱和
+  batch_size: 8
+  max_len: 256
+  eval_batches: [0, 10, 20, 40]
+  gradient_checkpointing: true
+  grad_clip: 1.0
+
+codec:
+  n_context: 1
+  n_seeds: 5
+  skip_first_tokens: 10
+  n_eval: 300
+
+# 三个训练臂：注入源不同。source 语法 "benchmark:<loader>" 或 "pile:<SetName>"
+arms:
+  - name: gsm8k            # 正对照：注入 benchmark 本身 → 已知 gsm8k CoDeC 大升
+    source: "benchmark:gsm8k"
+  - name: dmmath           # 数学题（异内容同格式域）：DM Mathematics 合成题，非评测集
+    source: "pile:DM Mathematics"
+  - name: arxiv            # 数学知识（异格式）：ArXiv 数学论文正文
+    source: "pile:ArXiv"
+
+# 每臂 checkpoint 测这些 probe 的 CoDeC（源自身在脚本里动态追加）
+probes:
+  - gsm8k                  # benchmark，看假阳
+  - math-500              # benchmark，看假阳
+  - gsm1k                 # 同族干净集
+  - evalplus              # 跨域对照，应恒定
+
+filler:                    # 仅供 pile chunk 加载参数复用（本实验纯注入不混 filler）
+  chunk_chars: 600
+  n_chunks: 800            # 注入源 chunk 数（train + 源自身 probe 共用池）
+
+# 预期读法（见 notes.md）：
+#   DM/ArXiv 注入后 gsm8k/math-500 不升 → CoDeC 特异于「见过具体文本」✓
+#   都抬 → CoDeC 被数学能力/领域带起 → 能力混淆假阳 ✗
+#   前提：每臂 train loss 单调降（训练有效）+ evalplus 恒定（模型没坏）

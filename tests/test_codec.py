@@ -100,6 +100,35 @@ def test_inconclusive_with_single_sample():
     assert r.verdict_hint == Verdict.INCONCLUSIVE
 
 
+class _NaNModel(ModelInterface):
+    """logprobs 返回 NaN，模拟 OPT bf16 finetune 后前向数值崩溃。"""
+
+    name = "nan"
+    stage_tag = "base"
+
+    def supports(self, cap: Capability) -> bool:
+        return cap in {Capability.LOGPROBS, Capability.GENERATE}
+
+    def generate(self, prompt: str, max_tokens: int = 256, temperature: float = 0.0) -> str:
+        return ""
+
+    def logprobs(self, prompt: str, completion: str) -> np.ndarray:
+        return np.full(len(completion.split()), np.nan, dtype=np.float64)
+
+
+def test_nan_logprobs_inconclusive_not_silent_clean():
+    """NaN logprobs 必须返回 INCONCLUSIVE，绝不能静默变成 signal=0.0 CLEAN。
+
+    回归：NaN<0 == False → 旧代码 frac_negative=mean(NaN<0)=0.0 假报 CLEAN，
+    违反红线「禁止悄悄回退到不可信结果」。现改为 _avg_logp 剔除非有限值。
+    """
+    r = codec_detect(_NaNModel(), _spec(), _qs(30))
+    assert not r.prerequisites_met
+    assert r.verdict_hint == Verdict.INCONCLUSIVE
+    assert r.signal is None
+    assert "non-finite" in (r.error or "")
+
+
 # ----------------------------- behavior ----------------------------- #
 
 
@@ -119,6 +148,21 @@ def test_unseen_model_low_score_clean():
     assert r.signal == 0.0
     assert r.verdict_hint == Verdict.CLEAN
     assert r.evidence["mean_delta"] > 0
+
+
+def test_keep_deltas_absent_by_default_present_on_request():
+    """keep_deltas=False（默认）不带 deltas；True 时带每样本 Δ 数组。"""
+    r_off = codec_detect(_ContextEffectModel(-1.0), _spec(), _qs(30), seed=7)
+    assert "deltas" not in r_off.evidence
+
+    r_on = codec_detect(
+        _ContextEffectModel(-1.0), _spec(), _qs(30), seed=7, keep_deltas=True
+    )
+    deltas = r_on.evidence["deltas"]
+    assert len(deltas) == r_on.evidence["n_samples"]
+    # signal = Δ<0 比例，应与 deltas 一致
+    frac_neg = sum(d < 0 for d in deltas) / len(deltas)
+    assert frac_neg == r_on.signal
 
 
 def test_skip_first_tokens_counts_short_samples():

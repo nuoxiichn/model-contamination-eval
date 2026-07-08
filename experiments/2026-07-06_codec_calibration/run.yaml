@@ -1,0 +1,16 @@
+# CoDeC 阈值校准（纯后处理，消费 dose_response + specificity 的 outputs）
+# 正样本 = 注入污染数据（dose>0 终点）；负样本 = 阴性面板 + p=0 控制 + 未训练邻居。
+# 产出 ROC/AUC、固定 FPR=5% 的阈值、Youden 阈值、剂量分层 TPR。
+#
+# 红线：单模型(Pythia) + 合成正样本，阈值 model-specific、不跨模型族迁移。
+# 标注为 "Pythia-calibrated operating characteristic"，非可对外发布的绝对红/黄/绿。
+
+inputs:
+  dose_curves: ../2026-07-06_codec_dose_response/outputs/dose_curves.json
+  specificity: ../2026-07-06_codec_specificity/outputs/specificity_results.json
+
+bootstrap:
+  n_boot: 500          # 每个数据集实例 bootstrap 出多少个合成 signal（丰富 ROC）
+  seed: 0
+
+target_fpr: 0.05       # 固定假阳率反解保守阈值

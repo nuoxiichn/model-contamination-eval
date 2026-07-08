@@ -1,0 +1,53 @@
+# CoDeC 剂量-响应实验
+# 问题：CoDeC 分数能否反映污染强弱（剂量），而不仅是「有没有」。
+#
+# 剂量 = 混合比例：训练总预算固定，每个 batch 的每个 slot 以概率 p 取 benchmark
+# 文本、否则取干净 filler（Pile-seen 背景语料）。p 越低 → benchmark 被更新次数
+# 越少、覆盖样本越少 → 记忆越弱。p=0 是纯 filler 控制（CoDeC 必须停在 base 附近）。
+#
+# 关键：CoDeC 信号饱和快（inject 实验 100% 剂量 ~10 batch 就到 0.85），所以沿
+# 训练曲线在多个 checkpoint 测分，剂量-响应体现为「曲线族的排序与爬升速度」，
+# 而非单个终点值。见 notes.md。
+
+model:
+  name: pythia-2.8b
+  path: /mnt/public/code/chennuoxi/hf_cache/models/C2_pythia-2.8b
+  stage_tag: base
+  dtype: bfloat16
+
+train:
+  lr: 3.0e-5
+  total_batches: 60          # 与 inject 实验对齐
+  batch_size: 8
+  max_len: 256
+  eval_batches: [0, 5, 10, 20, 40, 60]   # 在这些 batch 后测 CoDeC（0=base）
+  gradient_checkpointing: true
+  # 每个 (dose, seed) 从干净 base 重载，避免串扰
+
+doses: [0.0, 0.01, 0.05, 0.10, 0.20]
+
+# 主目标跑全 seed；副目标只验形状（seed 数在 targets 里覆盖）
+seeds: [42, 43, 44]
+
+filler:
+  # Pile-seen 背景语料（模型已记住 → 训练它不引入新污染、只稀释梯度）
+  pile_set_name: Wikipedia (en)
+  chunk_chars: 600
+  n_chunks: 2000             # 需 >> benchmark 样本数，保证低剂量下 filler 不重复枯竭
+
+codec:
+  n_context: 1
+  n_seeds: 5
+  skip_first_tokens: 10
+  n_eval: 300
+
+targets:
+  - loader: gsm8k            # 主目标：base 0.027，同质，动态范围最大
+    seeds: [42, 43, 44]
+  - loader: math-500         # 副目标：验普适性
+    seeds: [42]
+  - loader: mmlu-pro         # 副目标：异质多主题（见 specificity 2c 的坑）
+    seeds: [42]
+
+# 预期：终点分数随 p 单调升；p=0 停在 base；Spearman rho(dose, score) 显著为正；
+# 报告「最小可检测剂量」= 首个显著高于 p=0 null 的剂量点。

@@ -1,0 +1,58 @@
+# CoDeC 跨模型(#1) + 溢出-剂量(#2) 实验
+# 一份脚本两个交付：第二个模型族复现 gsm8k 剂量-响应 + 溢出随剂量的曲线。
+
+models:
+  - name: pythia-2.8b            # 主模型（复跑，拿到 Pythia 的溢出-剂量曲线，非纯 100% worst-case）
+    path: /mnt/public/code/chennuoxi/hf_cache/models/C2_pythia-2.8b
+    dtype: bfloat16
+  # === 第二个模型族（受控注入宿主）===
+  - name: opt-1.3b               # 不同架构(OPT)、2022、已验证干净(gsm8k base=0.045/evalplus=0.000)
+    path: facebook/opt-1.3b      # 已缓存；头部空间大，适合做剂量-响应复现
+    dtype: float32               # OPT bf16 finetune 后前向出 NaN(logprobs崩)；fp32 数值稳
+    train_override: {lr: 5.0e-6}  # OPT 全参对 lr 敏感，配 fp32 + grad_clip 抑制发散
+  # Qwen2.5-1.5B 不做受控注入：base 已全污染(gsm8k=0.735)，无头部空间；
+  #   其价值是「真实模型对照表」（5 模型 base signal 梯度），已单独记录。
+  # 缓存已有 7B（显存吃紧，暂不用）：
+  # - name: olmo-2-7b
+  #   path: /mnt/public/code/chennuoxi/hf_cache/models/C1_olmo-2-7b
+  #   dtype: bfloat16
+  #   train_override: {batch_size: 2, gradient_checkpointing: true}
+  # - name: mistral-7b-v0.1
+  #   path: /mnt/public/code/chennuoxi/hf_cache/models/A2_mistral-7b-v0.1
+  #   dtype: bfloat16
+  #   train_override: {batch_size: 2, gradient_checkpointing: true}
+
+train:
+  lr: 3.0e-5
+  total_batches: 60
+  batch_size: 8                  # 大模型在 model.train_override 里下调
+  max_len: 256
+  eval_batches: [0, 60]          # base + 终点；要看爬升可加 [0,10,20,40,60]
+  gradient_checkpointing: true
+  grad_clip: 1.0                 # 梯度裁剪，抑制发散（OPT 尤其需要）
+
+doses: [0.0, 0.05, 0.10, 0.20]   # 丢掉 0.01（溢出研究里太弱），保留 0 作控制
+seeds: [42]
+
+filler:
+  pile_set_name: Wikipedia (en)
+  chunk_chars: 600
+  n_chunks: 2000
+
+codec:
+  n_context: 1
+  n_seeds: 5
+  skip_first_tokens: 10
+  n_eval: 300
+
+train_target: gsm8k              # 只在 gsm8k 上注入
+probes:                          # 每个 checkpoint 测这些的 CoDeC
+  - gsm8k                        # self（污染目标，应随剂量升）
+  - gsm1k                        # 同族未训练 → 溢出主探针（干净集，理想应低）
+  - math-500                     # 数学相邻未训练 → 次级溢出
+  - evalplus                     # 跨域(代码)未训练 → 溢出免疫对照
+
+# 预期：
+# #1 第二模型的 gsm8k self 信号同样随剂量单调升（复现剂量-响应）。
+# #2 gsm1k/math-500 溢出随剂量增长；低剂量若溢出可忽略，则 calibration 应改用
+#    剂量匹配的兄弟负样本，而非 specificity 2b 的 100% worst-case。
