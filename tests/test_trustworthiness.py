@@ -35,12 +35,6 @@ def _mk(method: str, signal: float | None, hint: Verdict, ok: bool = True) -> De
 # ---------------- STRONG / WEAK 分类 ----------------
 
 
-def test_canary_in_strong():
-    assert "canary" in STRONG_SIGNALS
-
-
-
-
 def test_paraphrase_in_strong():
     assert "paraphrase" in STRONG_SIGNALS
 
@@ -64,7 +58,7 @@ def test_strong_weak_disjoint():
 def test_two_strong_positives_gives_dirty():
     r = [
         _mk("spv_mia", -3.2, Verdict.DIRTY),
-        _mk("canary", 0.42, Verdict.DIRTY),
+        _mk("paraphrase", 0.42, Verdict.DIRTY),
         _mk("perm_option", 0.05, Verdict.CLEAN),
     ]
     v = aggregate_verdict("mmlu-pro", Stage.SFT, r)
@@ -105,7 +99,7 @@ def test_one_weak_alone_gives_clean():
 def test_all_prereq_missing_gives_inconclusive():
     r = [
         _mk("spv_mia", None, Verdict.INCONCLUSIVE, ok=False),
-        _mk("canary", None, Verdict.INCONCLUSIVE, ok=False),
+        _mk("paraphrase", None, Verdict.INCONCLUSIVE, ok=False),
     ]
     v = aggregate_verdict("mmlu-pro", Stage.SFT, r)
     assert v.verdict == Verdict.INCONCLUSIVE
@@ -115,10 +109,10 @@ def test_all_prereq_missing_gives_inconclusive():
 def test_inconclusive_not_counted_as_positive():
     r = [
         _mk("spv_mia", None, Verdict.INCONCLUSIVE, ok=False),
-        _mk("canary", 0.42, Verdict.DIRTY),
+        _mk("paraphrase", 0.42, Verdict.DIRTY),
     ]
     v = aggregate_verdict("mmlu-pro", Stage.SFT, r)
-    # 只有 canary 一个 strong 阳性 → SUSPECT
+    # 只有 paraphrase 一个 strong 阳性 → SUSPECT
     assert v.strong_signals_positive == 1
     assert v.verdict == Verdict.SUSPECT
 
@@ -127,14 +121,14 @@ def test_inconclusive_not_counted_as_positive():
 
 
 def test_calibrated_false_marks_relative_ranking():
-    r = [_mk("spv_mia", -3.0, Verdict.DIRTY), _mk("canary", 0.4, Verdict.DIRTY)]
+    r = [_mk("spv_mia", -3.0, Verdict.DIRTY), _mk("paraphrase", 0.4, Verdict.DIRTY)]
     v = aggregate_verdict("x", Stage.SFT, r, calibrated=False)
     assert "相对排名" in v.summary
     assert "positive control" in v.summary
 
 
 def test_calibrated_true_uses_traffic_light():
-    r = [_mk("spv_mia", -3.0, Verdict.DIRTY), _mk("canary", 0.4, Verdict.DIRTY)]
+    r = [_mk("spv_mia", -3.0, Verdict.DIRTY), _mk("paraphrase", 0.4, Verdict.DIRTY)]
     v = aggregate_verdict("x", Stage.SFT, r, calibrated=True)
     assert "🔴" in v.summary or "红" in v.summary
 
@@ -148,7 +142,7 @@ def test_rank_puts_more_strong_first():
         Stage.SFT,
         [
             _mk("spv_mia", -3.0, Verdict.DIRTY),
-            _mk("canary", 0.42, Verdict.DIRTY),
+            _mk("paraphrase", 0.42, Verdict.DIRTY),
         ],
     )
     v_clean = aggregate_verdict(
@@ -183,7 +177,7 @@ def test_rank_does_not_mutate_input():
         aggregate_verdict(
             "a",
             Stage.SFT,
-            [_mk("spv_mia", -3.0, Verdict.DIRTY), _mk("canary", 0.5, Verdict.DIRTY)],
+            [_mk("spv_mia", -3.0, Verdict.DIRTY), _mk("paraphrase", 0.5, Verdict.DIRTY)],
         ),
     ]
     original_order = [v.benchmark for v in inp]
@@ -204,7 +198,7 @@ def test_render_phase1_default_says_relative():
     v = aggregate_verdict(
         "mmlu-pro",
         Stage.SFT,
-        [_mk("spv_mia", -3.0, Verdict.DIRTY), _mk("canary", 0.4, Verdict.DIRTY)],
+        [_mk("spv_mia", -3.0, Verdict.DIRTY), _mk("paraphrase", 0.4, Verdict.DIRTY)],
     )
     out = render_trustworthiness_report([v])
     assert "相对排名" in out
@@ -212,7 +206,7 @@ def test_render_phase1_default_says_relative():
     assert "positive control" in out
     assert "mmlu-pro" in out
     assert "spv_mia" in out
-    assert "canary" in out
+    assert "paraphrase" in out
 
 
 def test_render_calibrated_switch_title():
@@ -230,12 +224,12 @@ def test_render_shows_all_methods_including_inconclusive():
         Stage.SFT,
         [
             _mk("spv_mia", -3.0, Verdict.DIRTY),
-            _mk("canary", None, Verdict.INCONCLUSIVE, ok=False),
+            _mk("paraphrase", None, Verdict.INCONCLUSIVE, ok=False),
         ],
     )
     out = render_trustworthiness_report([v])
     assert "spv_mia" in out
-    assert "canary" in out
+    assert "paraphrase" in out
     # 前置缺失应该有 ✗ 标记
     assert "✗" in out
 
@@ -244,7 +238,7 @@ def test_render_ordered_by_rank():
     v_dirty = aggregate_verdict(
         "high_risk",
         Stage.SFT,
-        [_mk("spv_mia", -3.0, Verdict.DIRTY), _mk("canary", 0.5, Verdict.DIRTY)],
+        [_mk("spv_mia", -3.0, Verdict.DIRTY), _mk("paraphrase", 0.5, Verdict.DIRTY)],
     )
     v_clean = aggregate_verdict(
         "low_risk", Stage.SFT, [_mk("spv_mia", -0.05, Verdict.CLEAN)]

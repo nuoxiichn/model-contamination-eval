@@ -204,6 +204,17 @@ def main() -> None:
         bench_qs[bench_cfg["name"]] = (spec, qs)
 
     all_results: dict = {}
+    result_path = out_dir / "result.json"
+
+    def _flush_results() -> None:
+        """每个 ckpt 跑完就落盘，避免整轮被 kill 丢全部进度（Jul3 教训）。"""
+        result_path.write_text(json.dumps({
+            "config": vars(args),
+            "ckpts": [c["name"] for c in ckpts],
+            "benches": [b["name"] for b in benches],
+            "results": all_results,
+        }, indent=2, default=_json_default))
+
     for ckpt_cfg in ckpts:
         model = _load_model(ckpt_cfg, args.device, args.dtype)
         if model is None:
@@ -234,15 +245,10 @@ def main() -> None:
                 f"({elapsed:.1f}s)"
             )
         all_results[ckpt_cfg["name"]] = ckpt_blob
+        _flush_results()  # 增量落盘
+        print(f"  [flush] {ckpt_cfg['name']} → {result_path.name}")
         _free_model(model)
 
-    result_path = out_dir / "result.json"
-    result_path.write_text(json.dumps({
-        "config": vars(args),
-        "ckpts": [c["name"] for c in ckpts],
-        "benches": [b["name"] for b in benches],
-        "results": all_results,
-    }, indent=2, default=_json_default))
     print(f"\n[done] wrote {result_path}")
 
     # 简要 signal 摘要

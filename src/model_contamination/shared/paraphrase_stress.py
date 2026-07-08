@@ -12,8 +12,14 @@
 
 ## 黑盒方法
 
-只依赖 `Capability.GENERATE`；不需要 logprobs。MC 走 evaluator 的 logprobs 路径
-（若 model 支持则更精确），math_cot 走 generate。
+只依赖 `Capability.GENERATE`；不需要 logprobs。
+
+## 适用范围（v2 收窄）
+
+**只用于 math_cot（生成式 CoT，如 GSM8K / MATH）**。MC 题型已确认结构性失效
+（experiments/2026-06-27_sft_contam_gt/notes.md E0.1/E0.3），不再作为 MC benchmark
+的检测信号，遇到 MC 为主的 benchmark 直接返回 `prerequisites_met=False` 标 skip。
+定位：**低权重参考信号**，需 clean ckpt 对照解读，不单独定裁决。
 
 ## Rewriter 策略（v1: rule-based）
 
@@ -204,19 +210,29 @@ def paraphrase_stress_test(
             evidence={"n_input": len(samples)},
         )
 
-    # 只评能被 evaluator 处理的 format
-    supported_formats = {"multiple_choice", "math_cot"}
+    # Paraphrase 只用于 math_cot（生成式 CoT）。MC 题型已确认结构性失效
+    # （见 experiments/2026-06-27_sft_contam_gt/notes.md E0.1/E0.3：SFT ckpt 训成
+    # "输出字母"，raw choice text 非训练分布，signal 被噪声淹没），不再作为 MC benchmark
+    # 的检测信号。遇到 MC 为主的 benchmark 直接标 skip，而非跑出低信号再忽略。
+    supported_formats = {"math_cot"}
     valid = [q for q in samples if q.format in supported_formats]
     if len(valid) < min_samples:
+        n_mc = sum(1 for q in samples if q.format == "multiple_choice")
+        reason = (
+            f"Only {len(valid)} math_cot samples; need >= {min_samples}."
+        )
+        if n_mc >= len(samples) - len(valid):
+            reason = (
+                f"benchmark 以 multiple_choice 为主（{n_mc}/{len(samples)}）；"
+                "paraphrase 对 MC 结构性失效，不作为 MC benchmark 的检测信号"
+                f"（math_cot 有效样本仅 {len(valid)} < {min_samples}）。"
+            )
         return DetectionResult(
             method="paraphrase", stage=stage, benchmark=benchmark.name,
             signal=None, verdict_hint=Verdict.INCONCLUSIVE,
             prerequisites_met=False,
-            error=(
-                f"Only {len(valid)} samples in supported formats "
-                f"({supported_formats}); need >= {min_samples}."
-            ),
-            evidence={"n_input": len(samples), "n_valid": len(valid)},
+            error=reason,
+            evidence={"n_input": len(samples), "n_valid": len(valid), "n_mc": n_mc},
         )
 
     cache = _CacheHandle(

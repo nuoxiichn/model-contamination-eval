@@ -260,25 +260,36 @@ def test_rule_paraphrase_changes_text():
 
 def test_short_prompt_skipped():
     """< _MIN_PROMPT_WORDS 的 prompt 会被跳过（不参与评测）。"""
-    long = [_mcq(i) for i in range(20)]
+    long = [_mathq(i) for i in range(1, 21)]
     short = [
         BenchmarkQuestion(
-            id=f"s-{i}", benchmark="x", format="multiple_choice",
+            id=f"s-{i}", benchmark="gsm8k", format="math_cot",
             prompt="hi",  # 1 word
-            answer="A",
-            choices=[f"opt{j}" for j in range(4)],
-            answer_index=0,
+            answer="0",
         )
         for i in range(10)
     ]
     r = paraphrase_stress_test(
-        _CleanContentModel(), _spec(), long + short, min_samples=20,
-        n_paraphrases=2, seed=1,
+        _CleanContentModel(), _spec(name="gsm8k", fmt="math_cot"), long + short,
+        min_samples=20, n_paraphrases=2, seed=1,
     )
     # 20 有效 + 10 skipped_short = 30 valid，但 10 无法 rewrite
     assert r.evidence["n_skipped_short"] == 10
     assert r.evidence["n_scorable"] == 20
     _ = _MIN_PROMPT_WORDS  # just reference to avoid lint
+
+
+def test_mc_benchmark_skipped_as_unsupported():
+    """MC 题型已确认结构性失效 → paraphrase 对 MC benchmark 返回 skip（不作为检测信号）。"""
+    qs = [_mcq(i) for i in range(30)]
+    r = paraphrase_stress_test(
+        _CleanContentModel(), _spec(), qs, min_samples=20, n_paraphrases=3, seed=1,
+    )
+    assert r.prerequisites_met is False
+    assert r.verdict_hint == Verdict.INCONCLUSIVE
+    assert r.signal is None
+    assert r.evidence["n_mc"] == 30
+    assert "multiple_choice" in (r.error or "")
 
 
 # ----------------------------- behavior signal direction ----------------------------- #
