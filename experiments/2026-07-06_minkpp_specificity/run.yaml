@@ -1,0 +1,48 @@
+# Min-K%++ specificity / false-positive 实验
+# 证明 Min-K%++ 生产弱信号（summary_stats）不会对「未训练数据」频繁误报，量化三类假阳风险。
+
+model:
+  name: pythia-2.8b
+  path: /mnt/public/code/chennuoxi/hf_cache/models/C2_pythia-2.8b
+  stage_tag: base
+  dtype: bfloat16
+
+minkpp:
+  k_ratio: 0.2
+  n_eval: 300
+  estimator: trim_mean
+  trim_ratio: 0.1
+  min_samples: 30
+
+# 2a 阴性对照面板：确证未训练（Pythia cutoff 前不含 / 后发布）的数据集。
+# 各测 Min-K%++ summary_stats → 干净数据的 null 分布（bootstrap CI on mean_score）。
+negative_panel:
+  - gsm8k          # math word problem
+  - math-500       # math
+  - math           # math (hendrycks algebra 子集)
+  - mmlu-pro       # knowledge MC
+  - gsm1k          # GSM8k 重制干净集（本地 jsonl，真未训练 → 关键干净点）
+  - evalplus       # code
+
+# 2b 溢出/迁移：在 gsm8k 上高剂量注入后，测 Min-K%++ on 未训练同族 + 无关。
+# 确认信号上升局域在 gsm8k，没涂抹到邻居。
+spillover:
+  train_target: gsm8k
+  train:
+    lr: 3.0e-5
+    n_batches: 40          # 高剂量：纯 gsm8k 文本，足够让 gsm8k Min-K%++ 饱和
+    batch_size: 8
+    max_len: 256
+    gradient_checkpointing: true
+    seed: 42
+  eval_on:
+    - gsm8k                # 训练目标（应高）
+    - gsm1k                # 同族未训练（应低 → 无溢出）★关键探针
+    - math-500             # 数学相邻未训练
+    - mmlu-pro             # 无关未训练
+    - evalplus             # 无关未训练（code）
+
+# 2c 结构性假阳：多来源混合的异质拼盘（干净但杂）。量化能把 summary_stats 抬多高。
+heterogeneous:
+  sources: [gsm8k, mmlu-pro, evalplus, math-500]
+  per_source: 80

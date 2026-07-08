@@ -1,0 +1,57 @@
+# Min-K%++ 剂量-响应实验
+# 问题：Min-K%++ 的生产弱信号（summary_stats）能否反映污染强弱（剂量），而不仅是「有没有」。
+#
+# 剂量 = 混合比例：训练总预算固定，每个 batch 的每个 slot 以概率 p 取 benchmark 文本、
+# 否则取干净 filler（Pile-seen 背景语料）。p 越低 → benchmark 被更新次数越少 → 记忆越弱。
+# p=0 是纯 filler 控制（信号必须停在 base 附近）。
+#
+# 关键：Min-K%++ 的 absolute score 跨 checkpoint 不可比（base→SFT 会整体平移，见 2026-06-22
+# delta_mia notes）。本实验所有 checkpoint 同 base、同训练预算、只变 dose → 平移 confound
+# 基本恒定，dose 是唯一自变量，故 summary_stats（mean/top5%/max）在此设定下横向可比。
+#
+# 注入文本 = min_k 打分用的同一段「Question:...\nAnswer:...」文本（_split_prompt_completion），
+# 保证 train==eval 文本一致，测的是「注入这段文本是否抬高 Min-K%++」。
+#
+# 跑法（单目标全 seed ~5h/dev C500）：
+#   HF_ENDPOINT=https://hf-mirror.com HF_HOME=/mnt/public/code/chennuoxi/hf_cache \
+#   PYTHONPATH=src python3 experiments/2026-07-06_minkpp_dose_response/run_dose.py
+
+model:
+  name: pythia-2.8b
+  path: /mnt/public/code/chennuoxi/hf_cache/models/C2_pythia-2.8b
+  stage_tag: base
+  dtype: bfloat16
+
+train:
+  lr: 3.0e-5
+  total_batches: 60
+  batch_size: 8
+  max_len: 256
+  eval_batches: [0, 5, 10, 20, 40, 60]   # 0 = base（训练前）
+  gradient_checkpointing: true
+
+doses: [0.0, 0.01, 0.05, 0.10, 0.20]
+seeds: [42, 43, 44]
+
+filler:
+  pile_set_name: Wikipedia (en)
+  chunk_chars: 600
+  n_chunks: 2000
+
+minkpp:
+  k_ratio: 0.2
+  n_eval: 300
+  estimator: trim_mean
+  trim_ratio: 0.1
+  min_samples: 30
+
+targets:
+  - loader: gsm8k            # 主目标：同质，动态范围最大
+    seeds: [42, 43, 44]
+  - loader: math-500         # 副目标：验普适性
+    seeds: [42]
+  - loader: mmlu-pro         # 副目标：异质多主题
+    seeds: [42]
+
+# 预期：mean_score / top5_percent_mean / max_score 随 p 单调升；p=0 停在 base；
+# Spearman rho(dose, score) 显著为正。top5%/max 应比 mean 更早离开 base（少数样本先被记忆）。

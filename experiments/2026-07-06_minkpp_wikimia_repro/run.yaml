@@ -1,0 +1,29 @@
+# Min-K%++ 论文复现：WikiMIA + Pythia-6.9B
+#
+# 目的：验证 _mink_pp_sample_score 实现无误。WikiMIA 自带 member/non-member 标签
+# （label=1 是训练 cutoff 前的 Wikipedia，模型「见过」；label=0 是 cutoff 后新增），
+# 直接算 member vs non-member 的 AUROC，对齐论文 Table（Pythia-6.9B Min-K%++ ≈ 0.70）。
+#
+# 同时算 Min-K%（loss，无 z-normalize）基线：论文核心主张是 z-normalization 带来
+# AUROC 增益，故 Min-K%++ 应显著 > Min-K%。两者一起报告才算复现「方法」而非「一个数」。
+#
+# 跑法（单卡即可，纯前向）：
+#   HF_ENDPOINT=https://hf-mirror.com HF_HOME=/mnt/public/code/chennuoxi/hf_cache \
+#   PYTHONPATH=src python3 experiments/2026-07-06_minkpp_wikimia_repro/run_repro.py
+
+model:
+  name: pythia-6.9b
+  path: /mnt/public/code/chennuoxi/hf_cache/models/pythia-6.9b
+  stage_tag: base
+  dtype: bfloat16
+
+wikimia:
+  dataset: swj0419/WikiMIA
+  splits: [WikiMIA_length32, WikiMIA_length64, WikiMIA_length128]
+  limit: null          # null = 全量；每 split 几百条，纯前向几分钟
+
+# 每样本前向只跑一次，k 扫描复用缓存的 per-token 数组
+k_grid: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+report_k: 0.2          # 论文默认展示点
+
+prefix: "\n\n"         # gpt_neox 无 BOS，用分隔符做 conditioning boundary（同 codec 复现）
