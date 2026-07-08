@@ -27,7 +27,6 @@
 #   spv_mia        SPV-MIA（灰盒，SFT 阶段最强）
 #   log_prober     LogProber（灰盒）
 #   self_critique  Self-Critique（黑盒，RLHF 后唯一可用）
-#   canary         Canary 召回率（黑盒，前置：注入过）
 
 benchmarks:
 
@@ -144,11 +143,11 @@ benchmarks:
     tiers: [p1-sft]
     stage_targets: [sft]
     variants: []
-    applicable_methods: [paraphrase, canary]
+    applicable_methods: [paraphrase]
     trustworthiness_default: suspect
     data_source: hf
     data_id: google/IFEval
-    note: 指令遵循主目标，传统污染方法适用性差，主要靠 Paraphrase + Canary
+    note: 指令遵循主目标，传统污染方法适用性差，主要靠 Paraphrase
 
   - name: aime-2025
     family: aime
@@ -183,7 +182,7 @@ benchmarks:
     tiers: [p1-sft]
     stage_targets: [sft]
     variants: [simpleqa]
-    applicable_methods: [paraphrase, canary]
+    applicable_methods: [paraphrase]
     trustworthiness_default: suspect
     data_source: hf
     data_id: TBD
@@ -196,7 +195,7 @@ benchmarks:
     tiers: [p1-sft]
     stage_targets: [sft]
     variants: []
-    applicable_methods: [paraphrase, canary]
+    applicable_methods: [paraphrase]
     trustworthiness_default: suspect
     data_source: hf
     data_id: basicv8vc/SimpleQA
@@ -400,7 +399,7 @@ benchmarks:
     tiers: [experimental]
     stage_targets: [sft]
     variants: [arena-hard]
-    applicable_methods: [paraphrase, canary]
+    applicable_methods: [paraphrase]
     trustworthiness_default: suspect
     data_source: hf
     data_id: lmsys/mt_bench_human_judgments

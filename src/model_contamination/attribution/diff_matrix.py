@@ -1,4 +1,4 @@
-"""差分矩阵：跨阶段对比同方法 signal，输出 ΔScore / ΔMIA / ΔCanary。
+"""差分矩阵：跨阶段对比同方法 signal，输出 ΔScore / ΔMIA。
 
 对应方案 §5.1 差分对象矩阵。
 
@@ -19,7 +19,7 @@ from model_contamination.types import DetectionResult, Stage
 # raw_clean 绝对值低于此阈值时 ratio 数值不稳定，标记 ratio_reliable=False
 # 各方法 signal 量纲不同，逐方法登记：
 #   - SPV-MIA Δpv：v3 clean 基线 ~ -1.2~-2.1，0.5 留安全边
-#   - perm_option：0~1 偏好率，chance baseline 1/n_options (~0.25)，0.05 安全边
+#   - perm_option：leak_fraction ∈ [0,1]，clean 基线 ≈ IsolationForest 假阳率（低），0.05 安全边
 #   - MinK-pp median 分数：~ -1 to -15 范围，0.1 安全边
 _DEFAULT_RATIO_DENOM_EPS = 0.5
 _RATIO_DENOM_EPS: dict[str, float] = {
@@ -27,7 +27,6 @@ _RATIO_DENOM_EPS: dict[str, float] = {
     "mink_plus_plus": 0.1,
     "perm_option": 0.05,
     "ts_guessing": 0.05,
-    "canary": 0.05,
     "paraphrase": 0.05,
 }
 
@@ -118,7 +117,6 @@ _SIGNAL_DIRECTION: dict[str, str] = {
     "mink_plus_plus": "lower_is_dirtier",  # 单题分数越低越像 member
     "perm_option": "higher_is_dirtier",  # 原位置偏好率越高越可疑
     "ts_guessing": "higher_is_dirtier",  # 猜中率越高越可疑
-    "canary": "higher_is_dirtier",       # 留存率越高越可疑
     "log_prober": "higher_is_dirtier",
     "self_critique": "higher_is_dirtier",
     "paraphrase": "lower_is_dirtier",

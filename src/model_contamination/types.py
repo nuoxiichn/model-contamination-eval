@@ -41,7 +41,6 @@ MethodTag = Literal[
     "spv_mia",
     "log_prober",
     "self_critique",
-    "canary",
     "codec",
 ]
 
@@ -128,10 +127,8 @@ class StageAttribution:
 
     benchmark: str
     has_pre_sft_checkpoint: bool
-    has_canary: bool
     delta_score: float | None
     delta_mia_auc: float | None
-    delta_canary: float | None
     conclusion: Literal[
         "pretrain_only",
         "sft_introduced",

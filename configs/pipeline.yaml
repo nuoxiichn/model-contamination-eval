@@ -24,16 +24,12 @@ spv_mia:
   n_neighbors: 10
   noise_scale: 0.1
 
-canary:
-  pretrain_canary_path: ./data/canary/pretrain.jsonl
-  sft_canary_path: ./data/canary/sft.jsonl
-
 # ============ 综合裁决规则 ============
 
 verdict:
   red_min_strong_signals: 2     # 强信号 ≥ 2 → 红灯
   yellow_min_signals: 1
-  strong_signals: [canary, paraphrase, spv_mia]
+  strong_signals: [paraphrase, spv_mia]
   weak_signals: [mink_plus_plus, perm_option]
 
 # ============ Stage 默认方法集 ============
@@ -42,6 +38,6 @@ stages:
   base:
     methods: [mink_plus_plus, perm_option]
   sft:
-    methods: [spv_mia, paraphrase, log_prober, canary]
+    methods: [spv_mia, paraphrase, log_prober]
   rlhf:
-    methods: [self_critique, paraphrase, canary]
+    methods: [self_critique, paraphrase]

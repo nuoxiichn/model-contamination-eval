@@ -25,9 +25,9 @@ LLM benchmark 越来越不可信：
 
 | 阶段 | 主信号 | 备注 |
 | --- | --- | --- |
-| base | Oren 分片排列检验、Min-K%++ 辅助 | Oren 提供数学 FPR 保证 |
-| SFT | SPV-MIA（用同源 base 做 reference）、MemLens、Paraphrase Stress、同族对照 ΔScore | AUC 显著优于无 reference 的 MIA |
-| SFT + RLHF | Self-Critique、Paraphrase、同族迁移检测 | GRPO 一轮即抹除 SFT 阶段的 MIA 信号，传统方法在此退化 |
+| base | 选项排列检测（perm_option）、Min-K%++ 辅助 | MC 位置记忆 + pretrain 泄露信号 |
+| SFT | SPV-MIA（用同源 base 做 reference）、Paraphrase Stress | AUC 显著优于无 reference 的 MIA |
+| SFT + RLHF | Self-Critique、Paraphrase | GRPO 一轮即抹除 SFT 阶段的 MIA 信号，传统方法在此退化 |
 
 
 ## 目标 benchmark
@@ -42,27 +42,26 @@ LLM benchmark 越来越不可信：
 - Action 类 benchmark —— 方法学调研未覆盖，留待后续版本
 - 不在 P1 名单内的 benchmark（MMLU / GSM8K / HumanEval 等） —— `configs/benchmarks.yaml` 保留为实验/对照参考，不进可信度报告主表
 
-部分 benchmark 没有强同族对照（GPQA-Diamond / IFEval / SimpleQA），任务孤岛诊断对它们失效，只能依赖 Oren + Paraphrase 等单方法信号。
+`configs/benchmarks.yaml` 中的 `control` tier（MMLU-CF / GSM1k / LBPP 等）作为其他方法（如 ΔMIA）的干净对照集保留，本身不进可信度报告主表。
 
 ## 使用前提
 
 | 项 | 必需 | 缺失后果 |
 | --- | --- | --- |
 | 同源 base + SFT 双 checkpoint | 是 | SPV-MIA 与所有差分信号不可用，阶段归因失效 |
-| 模型暴露 logprobs | 是 | Oren / Min-K%++ / SPV-MIA 全部不可用 |
-| 同族对照集（MMLU-CF / GSM1k / LBPP 等）至少一半可获取 | 是 | 任务孤岛诊断失效 |
-| 中间层 hidden states 访问权限 | MemLens 才需要 | 不能跑 MemLens，其余不影响 |
+| 模型暴露 logprobs | 是 | Min-K%++ / SPV-MIA 全部不可用 |
+| 干净对照集（MMLU-CF / GSM1k / LBPP 等）至少一半可获取 | 否 | ΔMIA 等方法缺干净 baseline，退化为单值信号 |
 | 已知污染的 positive control 模型 | 用于阈值标定 | 当前缺失，红/黄/绿降级为**相对排名** |
 
-第三方黑盒模型只能跑 Paraphrase / 同族对照 ΔScore 两件套，CLI 会自动跳过白盒方法并在报告中标注"白盒方法不可用"。
+第三方黑盒模型只能跑 Paraphrase，CLI 会自动跳过白盒方法并在报告中标注"白盒方法不可用"。
 
 ## 当前阶段
 
 | Phase | 内容 | 状态 |
 | --- | --- | --- |
-| 1 | benchmark 注册表 + Oren + 同族 ΔScore + 可信度报告（ranked list 形式） | 🔵 进行中 |
-| 2 | SPV-MIA + Paraphrase Stress Test + canary 注入 + 阶段归因报告 | ⚪ 待开始 |
-| 3 | MemLens + Self-Critique + 阶段归因报告精细化 | ⚪ 待开始 |
+| 1 | benchmark 注册表 + 可信度报告（ranked list 形式） | 🔵 进行中 |
+| 2 | SPV-MIA + Paraphrase Stress Test + 阶段归因报告 | ⚪ 待开始 |
+| 3 | Self-Critique + 阶段归因报告精细化 | ⚪ 待开始 |
 | 4 | 对照集季度更新 + 历史归因结果库 | ⚪ 持续 |
 
 未实现的方法在代码中是 `NotImplementedError` 占位，不会悄悄返回 0 或假数据。
@@ -80,13 +79,6 @@ export HF_ENDPOINT=https://hf-mirror.com
 uv run python scripts/download_benchmarks.py \
     --benchmarks mmlu gsm8k mmlu-cf gsm1k livebench
 
-# Phase 1 sanity check：选 1 个已知污染 + 1 个干净对照
-bash scripts/sanity_check.sh \
-    --model-base   /path/to/llama3-base \
-    --model-target /path/to/llama3-sft \
-    --benchmark-dirty gsm8k \
-    --benchmark-clean livebench
-
 # 单 benchmark 跑全方法
 uv run python -m model_contamination.cli detect \
     --model /path/to/checkpoint \
@@ -103,7 +95,6 @@ uv run python -m model_contamination.cli detect \
 ## 参考
 
 - SPV-MIA: [arXiv:2311.06062](https://arxiv.org/abs/2311.06062)
-- MemLens: [arXiv:2509.20909](https://arxiv.org/abs/2509.20909)
 - Fragility of LRM Detection（RL 抹除 MIA 信号）: [arXiv:2510.02386](https://arxiv.org/abs/2510.02386)
 - Impact of Post-training on Contamination: [arXiv:2601.06103](https://arxiv.org/abs/2601.06103)
 - ConStat: [arXiv:2405.16281](https://arxiv.org/abs/2405.16281)
