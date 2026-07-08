@@ -1,27 +1,49 @@
-"""选项排列检测（Yang et al. AAAI 2024, arXiv:2305.10403）。
+"""选项排列检测 —— 对齐 Ni et al. AAAI 2025《Training on the Benchmark Is Not
+All You Need》(arXiv:2409.01790) 的 Algorithm 2（shuffled / Scenario b）。
 
-打乱多选题选项顺序，看模型是否偏好原始选项位置。灰盒（需 logprobs），专用于多选题格式。
-在 C-Eval 上发现 Qwen 系列泄漏值是其他模型近 10 倍；Qwen2-72B 在 CMB 上 42% 泄漏。
+官方实现：github.com/nishiwen1214/Benchmark-leakage-detection
 
-适用场景（U.5 / Finding 9 闭环之后明确）：
-    SPV-MIA / Min-K%++ / guided 三家在 MC 题型上结构性失效（completion 太短，paraphrase
-    扰动幅度淹没在噪声里）。perm_option 用"题面 + 各选项 + 字母"作为整体单位，
-    不依赖 completion 长度，是 MC SFT 污染的主信号方法。
+核心思想：打乱多选题选项内容不改变题意。若模型在预训练/SFT 见过该题，会对某一
+特定选项顺序赋予异常高的序列概率。枚举全部 n! 排列、算每个排列「选项块」的序列
+log-prob，若最大值在这 n! 个值里是统计离群点 → 判该题泄漏。Algorithm 2 **不需要
+知道原始顺序**（出题方/预训练可能已打乱），只检测「是否存在离群的最大值」。灰盒
+（需 logprobs），专用于多选题格式。论文在 C-Eval 上发现 Qwen 系列泄漏值约为其他
+模型 10×；Algorithm 1 检出 Qwen2-72B 在 CMB 上 42% 泄漏。
+
+适用场景（U.5 / Finding 9 闭环后明确）：
+    SPV-MIA / Min-K%++ 在 MC 题型上结构性失效（completion 太短，paraphrase 扰动
+    幅度淹没在噪声里）。perm_option 用「题面 + 各选项」整块序列概率作单位，不依赖
+    completion 长度，是 MC 污染的主信号方法。
+
+算法（每题）：
+    1. 枚举 n! 个选项排列（n! 超过 max_permutations 时随机采样，恒含原序）；
+    2. 每个排列构造 "{question}:\nA:opt\nB:opt\n..." 的选项块文本，
+       score = sum_token logp(选项块 | 题面)（不按长度归一，与论文一致）；
+    3. 对这批 score fit IsolationForest，取 argmax(score) 排列的 decision_function
+       分数；分数 < outlier_threshold → 该题判泄漏；
+    4. 泄漏率 = 泄漏题数 / 有效题数。
 
 信号约定（与 diff_matrix.signal_direction_for("perm_option") = "higher_is_dirtier" 对齐）：
-    signal = mean(acc_orig) - mean(acc_perm_over_k)
-
-    干净模型：选项位置无关，signal ≈ 0
-    污染模型：原始顺序题→答案被记住，permutation 后 acc 掉，signal > 0
-
-    chance baseline = 0（同一道题，shuffle 选项不改变内容，clean 模型理应一致）
+    signal = leak_fraction = 在 primary_threshold(-0.17) 下判泄漏的题目占比 ∈ [0, 1]
+    干净模型：各排列 log-prob 近似均匀，最大值不离群 → leak_fraction 接近 IsolationForest
+             的基线假阳率（低）
+    污染模型：记住的顺序 log-prob 异常高 → 大量题被判离群 → leak_fraction 显著抬升
 
 输入要求：白盒或灰盒模型（需 logprobs）+ multiple_choice benchmark
+
+已知失效场景：
+    - 论文实测 shuffled 场景的检测精度显著低于 unshuffled；训练 epoch 少时 recall 低
+      （LLaMA2-7B 在阈值 -0.17 下 recall 从 1 epoch 的 49.8% 升到 10 epoch 的 96.2%）
+    - 无 positive control → 绝对阈值/裁决未校准，verdict_hint 仅供排序参考
 """
 
 from __future__ import annotations
 
+import math
+from itertools import permutations as iter_permutations
+
 import numpy as np
+from sklearn.ensemble import IsolationForest
 
 from model_contamination.models.base import Capability, ModelInterface
 from model_contamination.types import (
@@ -34,10 +56,19 @@ from model_contamination.types import (
 
 _LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-# 经验阈值：v3 SFT 7-ckpt calibration 跑出来后再校准
-# 干净模型上 signal 应接近 0；显著大于 0 即可疑
-_ALPHA_DIRTY = 0.20      # 准确率掉 20+ 点 = DIRTY
-_ALPHA_SUSPECT = 0.05    # 5+ 点掉幅 = SUSPECT
+# 论文用的三档 IsolationForest.decision_function 阈值（越负越离群 → 越可疑）。
+# 报告 primary 一档为主信号，另两档进 evidence 便于敏感度对照。
+_THRESHOLDS: tuple[float, ...] = (-0.2, -0.17, -0.15)
+_PRIMARY_THRESHOLD = -0.17
+
+# 经验裁决阈值（provisional）：leak_fraction 量纲，无 positive control 前不做绝对裁决。
+# 论文中干净模型的泄漏率典型 ~0.10，Qwen 系列可高一个量级；此处按 fraction 粗分档，
+# 待 SFT calibration + positive control 落地后重校。
+_ALPHA_DIRTY = 0.30      # 泄漏率 ≥ 30% = DIRTY
+_ALPHA_SUSPECT = 0.15    # ≥ 15% = SUSPECT
+
+# IsolationForest 至少要几个样本才有意义（n! ≥ 此值才纳入统计）
+_MIN_PERMS_FOR_IF = 6
 
 
 def option_permutation_test(
@@ -45,14 +76,18 @@ def option_permutation_test(
     benchmark: BenchmarkSpec,
     questions: list[BenchmarkQuestion],
     *,
-    n_permutations: int = 5,
+    max_permutations: int = 120,
     min_samples: int = 50,
+    outlier_threshold: float = _PRIMARY_THRESHOLD,
     seed: int = 42,
 ) -> DetectionResult:
-    """对 MC benchmark 跑选项排列检测。
+    """对 MC benchmark 跑 Algorithm 2 选项排列离群检测。
 
-    n_permutations: 每题随机生成多少个排列。论文 k=5 已能稳定区分。
-    min_samples: 题目数下限；MMLU-Pro 200 题足够。
+    max_permutations: 每题枚举排列上限。n! ≤ 此值时枚举全部（4 选项=24、5 选项=120
+        天然全枚举）；超过（如 MMLU-Pro ≥6 选项）时随机采样这么多个不重复排列，恒
+        含原序。默认 120 覆盖 ≤5 选项全枚举。
+    min_samples: 有效 MC 题目数下限。
+    outlier_threshold: primary 阈值，主信号 leak_fraction 在此阈值下统计。
     """
     if benchmark.format != "multiple_choice":
         raise ValueError(
@@ -70,11 +105,10 @@ def option_permutation_test(
             error=f"{model.name} does not support logprobs; perm_option requires logprobs.",
         )
 
-    # 过滤合法 MC 题（必须有 choices 且 answer_index 在范围内）
-    valid: list[BenchmarkQuestion] = []
-    for q in questions:
-        if q.choices and q.answer_index is not None and 0 <= q.answer_index < len(q.choices):
-            valid.append(q)
+    # 过滤合法 MC 题：至少 2 个选项才能排列（answer_index 非必需，Algorithm 2 不看金标）
+    valid: list[BenchmarkQuestion] = [
+        q for q in questions if q.choices and len(q.choices) >= 2
+    ]
 
     if len(valid) < min_samples:
         return DetectionResult(
@@ -82,37 +116,53 @@ def option_permutation_test(
             signal=None, verdict_hint=Verdict.INCONCLUSIVE,
             prerequisites_met=False,
             error=(
-                f"Need >= {min_samples} valid MC questions (with choices + answer_index), "
+                f"Need >= {min_samples} valid MC questions (with >=2 choices), "
                 f"got {len(valid)} out of {len(questions)}."
             ),
             evidence={"n_valid": len(valid), "n_total": len(questions)},
         )
 
+    thresholds = tuple(sorted(set(_THRESHOLDS) | {outlier_threshold}))
     rng = np.random.default_rng(seed)
-    acc_orig_list: list[int] = []
-    acc_perm_list: list[float] = []  # 每题在 k 个 permutation 上的平均 acc
+
+    flagged_by_thr: dict[float, int] = {t: 0 for t in thresholds}
+    n_scored = 0
+    perms_used: list[int] = []
 
     for q in valid:
-        n_opt = len(q.choices)
-        # 原序 accuracy
-        pred_orig = _predict_letter(model, q.prompt, q.choices)
-        acc_orig = 1 if pred_orig == _LETTERS[q.answer_index] else 0
-        acc_orig_list.append(acc_orig)
+        logps = _permutation_logprobs(model, q, max_permutations, rng)
+        if len(logps) < _MIN_PERMS_FOR_IF:
+            # 选项太少（如 2 选项只有 2 排列），IsolationForest 无意义，跳过该题
+            continue
+        n_scored += 1
+        perms_used.append(len(logps))
 
-        # k 个随机排列下的 accuracy
-        perm_accs: list[int] = []
-        for _ in range(n_permutations):
-            perm = rng.permutation(n_opt)
-            shuffled_choices = [q.choices[i] for i in perm]
-            # 正确内容现在落在哪个新位置：perm[new_idx] = orig_idx
-            new_correct_idx = int(np.where(perm == q.answer_index)[0][0])
-            pred = _predict_letter(model, q.prompt, shuffled_choices)
-            perm_accs.append(1 if pred == _LETTERS[new_correct_idx] else 0)
-        acc_perm_list.append(float(np.mean(perm_accs)))
+        X = np.asarray(logps, dtype=np.float64).reshape(-1, 1)
+        clf = IsolationForest(
+            n_estimators=100, contamination="auto", random_state=seed
+        )
+        clf.fit(X)
+        scores = clf.decision_function(X)
+        max_idx = int(np.argmax(logps))
+        max_score = float(scores[max_idx])
+        for t in thresholds:
+            if max_score < t:
+                flagged_by_thr[t] += 1
 
-    mean_orig = float(np.mean(acc_orig_list))
-    mean_perm = float(np.mean(acc_perm_list))
-    signal = mean_orig - mean_perm
+    if n_scored == 0:
+        return DetectionResult(
+            method="perm_option", stage=stage, benchmark=benchmark.name,
+            signal=None, verdict_hint=Verdict.INCONCLUSIVE,
+            prerequisites_met=False,
+            error=(
+                f"No question had >= {_MIN_PERMS_FOR_IF} permutations "
+                "(need >= 3 options for IsolationForest outlier test)."
+            ),
+            evidence={"n_valid": len(valid), "n_scored": 0},
+        )
+
+    frac_by_thr = {t: flagged_by_thr[t] / n_scored for t in thresholds}
+    signal = frac_by_thr[outlier_threshold]
 
     if signal >= _ALPHA_DIRTY:
         verdict = Verdict.DIRTY
@@ -125,29 +175,54 @@ def option_permutation_test(
         method="perm_option", stage=stage, benchmark=benchmark.name,
         signal=signal, verdict_hint=verdict, prerequisites_met=True,
         evidence={
-            "n_questions": len(valid),
-            "n_permutations": n_permutations,
-            "mean_acc_original": mean_orig,
-            "mean_acc_permuted": mean_perm,
-            "leak_score": signal,  # 别名，对应论文术语
+            "n_questions": n_scored,
+            "n_valid": len(valid),
+            "max_permutations": max_permutations,
+            "mean_perms_per_q": float(np.mean(perms_used)),
+            "primary_threshold": outlier_threshold,
+            "leak_fraction": signal,
+            "leak_fraction_by_threshold": {str(t): frac_by_thr[t] for t in thresholds},
+            "leak_score": signal,  # 别名，对应论文「泄漏率」术语
             "alpha_dirty": _ALPHA_DIRTY,
             "alpha_suspect": _ALPHA_SUSPECT,
         },
     )
 
 
-def _predict_letter(model: ModelInterface, question: str, choices: list[str]) -> str:
-    """对单题一次 forward 拿全部字母的 next-token logp，argmax 出预测字母。
+def _permutation_logprobs(
+    model: ModelInterface,
+    q: BenchmarkQuestion,
+    max_permutations: int,
+    rng: np.random.Generator,
+) -> list[float]:
+    """算某题在各选项排列下、选项块的序列 log-prob 之和。
 
-    使用最小提示词避免污染 (Question/Answer 锚点 + 选项行)。
-    通过 `model.next_token_logprobs` 批量：HFLocalModel 在字母全为单 token 时
-    1 forward 完成，比 N=len(choices) 次 logprobs() 快 5-10×。
+    与论文 inference_logprobs.py 一致：score = Σ_token logp(选项块 | 题面)，
+    选项块 = "A:opt\\nB:opt\\n..."，不按长度归一。
     """
+    choices = q.choices
+    assert choices is not None
     n = len(choices)
-    body = "\n".join(f"{_LETTERS[i]}. {c}" for i, c in enumerate(choices))
-    prompt = f"Question: {question}\n{body}\nAnswer:"
+    total = math.factorial(n)
 
-    candidates = [f" {_LETTERS[i]}" for i in range(n)]
-    logps = model.next_token_logprobs(prompt, candidates)
-    best_idx = int(np.argmax(logps))
-    return _LETTERS[best_idx]
+    if total <= max_permutations:
+        perms: list[tuple[int, ...]] = list(iter_permutations(range(n)))
+    else:
+        # 随机采样不重复排列，恒含原序（index 0）
+        identity = tuple(range(n))
+        seen = {identity}
+        perms = [identity]
+        while len(perms) < max_permutations:
+            p = tuple(int(x) for x in rng.permutation(n))
+            if p not in seen:
+                seen.add(p)
+                perms.append(p)
+
+    stem = f"{q.prompt}:\n"
+    blocks = [
+        "\n".join(f"{_LETTERS[i]}:{choices[perm[i]]}" for i in range(n))
+        for perm in perms
+    ]
+    # batch 前向：一题所有排列一次算完（大模型关键吞吐优化）。后端未覆写时
+    # seq_logprob_sums 默认逐条回退，数值等价。
+    return [float(x) for x in model.seq_logprob_sums(stem, blocks)]

@@ -1,0 +1,46 @@
+# Scenario b（Ni et al. AAAI 2025 Algorithm 2）Qwen 复现配置。
+#
+# 复现目标：论文 headline —— Qwen 系列在中文 MC benchmark 上泄漏率远高于抗污染对照。
+# 本地条件：Qwen2.5-1.5B（缓存）+ Qwen2.5-7B（下载）；论文原模型是 Qwen2-72B/1.5-110B，
+# 故复现的是「Qwen 家族 + 规模趋势」而非 42% 的绝对量级（见 notes.md）。
+#
+# 信号：option_permutation_test 的 leak_fraction ∈ [0,1]，higher_is_dirtier。
+# 期望：c-eval/cmmlu/cmb（中文，Qwen 训练重灾区）> mmlu-cf（抗污染对照）。
+
+models:
+  - name: qwen2.5-1.5b
+    model_path: Qwen/Qwen2.5-1.5B      # HF_HOME 缓存已存在
+    stage_tag: base
+    dtype: bfloat16
+    trust_remote_code: true
+
+  - name: qwen2.5-7b
+    model_path: Qwen/Qwen2.5-7B        # prepare 阶段下载
+    stage_tag: base
+    dtype: bfloat16
+    trust_remote_code: true
+
+  # 补跑：对齐论文原始量级（论文 Qwen2-72B CMB 42%）。~145G，多卡切分。
+  - name: qwen2.5-72b
+    model_path: Qwen/Qwen2.5-72B
+    stage_tag: base
+    dtype: bfloat16
+    trust_remote_code: true
+    device_map: auto                   # accelerate 按层分片到多卡
+
+# prepare_data.py 已把四个 benchmark 导出到 outputs/data/<name>.jsonl
+benchmarks:
+  - c-eval        # 中文通用，4 选项
+  - cmmlu         # 中文通用，4 选项
+  - cmb           # 中文医学，4~5 选项（论文 Qwen2-72B 42% 那个）
+  - mmlu-cf       # 抗污染对照（期望低泄漏）
+
+params:
+  max_permutations: 24     # 4 选项=24 全枚举；5 选项(cmb)=120>24 → 采样 24 含原序
+  min_samples: 50
+  outlier_threshold: -0.17 # 论文 primary 阈值
+  seed: 42
+
+data_dir: outputs/data
+outputs:
+  path: outputs/results

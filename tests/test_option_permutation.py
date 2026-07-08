@@ -1,22 +1,23 @@
-"""option_permutation 单测。
+"""option_permutation 单测（Algorithm 2：序列 logprob + IsolationForest 离群）。
 
-Mock model 模拟两种行为：
-- 干净模型（追内容）：识别正确选项的语义，shuffle 后仍命中正确字母
-- 污染模型（追位置）：记住"题面 → 字母 A"，shuffle 后还是输出 A
+Mock model 直接返回「选项块」的序列 logprob（单元素数组，方法只用其和）：
+- 干净模型：各排列 logprob 恒定 → 无离群 → leak_fraction ≈ 0
+- 污染模型：只有「原序（选项内容升序 opt0/opt1/…）」logprob 异常高 → 该排列成离群点
+            → 大量题判泄漏 → leak_fraction 高
 """
 
 from __future__ import annotations
+
+import re
 
 import numpy as np
 import pytest
 
 from model_contamination.models.base import Capability, ModelInterface
-from model_contamination.stage_base.option_permutation import (
-    _LETTERS,
-    _predict_letter,
-    option_permutation_test,
-)
+from model_contamination.stage_base.option_permutation import option_permutation_test
 from model_contamination.types import BenchmarkQuestion, BenchmarkSpec, Verdict
+
+_OPT_RE = re.compile(r"opt(\d+)")
 
 
 def _spec(name: str = "mmlu-pro", fmt: str = "multiple_choice") -> BenchmarkSpec:
@@ -28,18 +29,20 @@ def _spec(name: str = "mmlu-pro", fmt: str = "multiple_choice") -> BenchmarkSpec
     )
 
 
-def _mcq(i: int, n_opt: int = 4, answer_idx: int = 0) -> BenchmarkQuestion:
-    """选项内容里嵌入题号 + 选项编号，方便 mock model 解析。
-
-    用 [QID=N] 作为题号锚点，避免和 "Question:" 前缀混淆。
-    """
+def _mcq(i: int, n_opt: int = 4) -> BenchmarkQuestion:
+    """选项内容形如 q{i}_opt{j}，原序为 j 升序（opt0,opt1,...）。"""
     return BenchmarkQuestion(
         id=f"q-{i}", benchmark="mmlu-pro", format="multiple_choice",
         prompt=f"[QID={i}] pick the right one",
-        answer=_LETTERS[answer_idx],
+        answer="A",
         choices=[f"q{i}_opt{j}" for j in range(n_opt)],
-        answer_index=answer_idx,
+        answer_index=0,
     )
+
+
+def _parsed_order(completion: str) -> list[int]:
+    """从选项块 'A:qI_opt0\\nB:qI_opt1\\n...' 解析各显示位置的 opt 序号。"""
+    return [int(m) for m in _OPT_RE.findall(completion)]
 
 
 # ----------------------------- mock models ----------------------------- #
@@ -56,56 +59,10 @@ class _NoLogprobModel(ModelInterface):
         return ""
 
 
-class _ContentTrackingModel(ModelInterface):
-    """干净模型：识别 prompt 中正确选项的内容，给对应字母高 logp。
+class _UniformModel(ModelInterface):
+    """干净模型：选项块 logprob 与排列无关（恒定）→ 无离群点。"""
 
-    通过解析 prompt 找出哪个选项以 'q{i}_opt{answer_idx}' 命名的内容 ——
-    用一个外部 dict 记 'q{i} 的正确内容是 opt0'，与 questions 的 answer_idx 对齐。
-    """
-
-    name = "content_tracker"
-    stage_tag = "sft"
-
-    def __init__(self, correct_content_by_q: dict[int, str]) -> None:
-        # {q_id: 正确选项的 content 字符串}
-        self.correct = correct_content_by_q
-
-    def supports(self, cap: Capability) -> bool:
-        return cap in {Capability.LOGPROBS, Capability.GENERATE}
-
-    def generate(self, prompt: str, max_tokens: int = 256, temperature: float = 0.0) -> str:
-        return ""
-
-    def logprobs(self, prompt: str, completion: str) -> np.ndarray:
-        # completion 是 " A" / " B" / ...
-        letter = completion.strip()
-        # 解析 prompt 找该 letter 行的选项内容
-        target_line = None
-        for line in prompt.split("\n"):
-            if line.startswith(f"{letter}. "):
-                target_line = line[len(f"{letter}. "):]
-                break
-        if target_line is None:
-            return np.array([-10.0], dtype=np.float64)
-        # 解析 prompt 取 q 编号：找 [QID=N]
-        import re
-        m = re.search(r"\[QID=(\d+)\]", prompt)
-        if m is None:
-            return np.array([-10.0], dtype=np.float64)
-        qnum = int(m.group(1))
-        correct_content = self.correct.get(qnum)
-        if target_line == correct_content:
-            return np.array([-0.1], dtype=np.float64)
-        return np.array([-5.0], dtype=np.float64)
-
-
-class _PositionStickyModel(ModelInterface):
-    """污染模型：永远偏好字母 A（位置 0），不看内容。
-
-    模拟 "SFT 训练时正确答案在 A 的题被多 epoch 训过，模型把 prompt-shape → A 固化"。
-    """
-
-    name = "position_sticky"
+    name = "uniform"
     stage_tag = "sft"
 
     def supports(self, cap: Capability) -> bool:
@@ -115,8 +72,29 @@ class _PositionStickyModel(ModelInterface):
         return ""
 
     def logprobs(self, prompt: str, completion: str) -> np.ndarray:
-        letter = completion.strip()
-        return np.array([-0.1 if letter == "A" else -5.0], dtype=np.float64)
+        return np.array([-10.0], dtype=np.float64)
+
+
+class _MemorizedOrderModel(ModelInterface):
+    """污染模型：只有原序（opt 升序）的选项块 logprob 异常高，其余低。
+
+    模拟「训练时见过 (Q, 原始顺序选项) 文本」→ 该顺序序列概率被记住抬高。
+    """
+
+    name = "memorized"
+    stage_tag = "sft"
+
+    def supports(self, cap: Capability) -> bool:
+        return cap in {Capability.LOGPROBS, Capability.GENERATE}
+
+    def generate(self, prompt: str, max_tokens: int = 256, temperature: float = 0.0) -> str:
+        return ""
+
+    def logprobs(self, prompt: str, completion: str) -> np.ndarray:
+        order = _parsed_order(completion)
+        if order == sorted(order):        # 升序 = 记住的原序
+            return np.array([-1.0], dtype=np.float64)
+        return np.array([-15.0], dtype=np.float64)
 
 
 # ----------------------------- prerequisites ----------------------------- #
@@ -125,11 +103,7 @@ class _PositionStickyModel(ModelInterface):
 def test_rejects_non_mc_benchmark():
     qs = [_mcq(i) for i in range(60)]
     with pytest.raises(ValueError, match="multiple_choice"):
-        option_permutation_test(
-            _PositionStickyModel(),
-            _spec(name="gsm8k", fmt="math_cot"),
-            qs,
-        )
+        option_permutation_test(_MemorizedOrderModel(), _spec(name="gsm8k", fmt="math_cot"), qs)
 
 
 def test_returns_inconclusive_without_logprobs():
@@ -143,16 +117,14 @@ def test_returns_inconclusive_without_logprobs():
 
 def test_returns_inconclusive_when_too_few_samples():
     qs = [_mcq(i) for i in range(10)]
-    r = option_permutation_test(
-        _PositionStickyModel(), _spec(), qs, min_samples=50,
-    )
+    r = option_permutation_test(_MemorizedOrderModel(), _spec(), qs, min_samples=50)
     assert not r.prerequisites_met
     assert r.signal is None
     assert "valid MC questions" in (r.error or "")
 
 
 def test_filters_questions_without_choices():
-    """缺 choices 或 answer_index 的题不计入有效样本。"""
+    """缺 choices 或选项数 < 2 的题不计入有效样本。"""
     good = [_mcq(i) for i in range(40)]
     bad = [
         BenchmarkQuestion(
@@ -161,10 +133,7 @@ def test_filters_questions_without_choices():
         )
         for i in range(40)
     ]
-    r = option_permutation_test(
-        _PositionStickyModel(), _spec(), good + bad,
-        min_samples=50,
-    )
+    r = option_permutation_test(_MemorizedOrderModel(), _spec(), good + bad, min_samples=50)
     assert not r.prerequisites_met
     assert r.evidence["n_valid"] == 40
     assert r.evidence["n_total"] == 80
@@ -173,96 +142,77 @@ def test_filters_questions_without_choices():
 # ----------------------------- behavior ----------------------------- #
 
 
-def test_clean_model_signal_near_zero():
-    """ContentTracking 模型 shuffle 不影响识别 → signal ≈ 0。"""
-    qs = [_mcq(i, n_opt=4, answer_idx=i % 4) for i in range(60)]
-    correct = {i: f"q{i}_opt{i % 4}" for i in range(60)}
-    r = option_permutation_test(
-        _ContentTrackingModel(correct), _spec(), qs,
-        n_permutations=5, min_samples=50, seed=7,
-    )
+def test_clean_model_leak_fraction_near_zero():
+    """均匀 logprob → 无离群 → leak_fraction ≈ 0 → CLEAN。"""
+    qs = [_mcq(i, n_opt=4) for i in range(60)]
+    r = option_permutation_test(_UniformModel(), _spec(), qs, min_samples=50, seed=7)
     assert r.prerequisites_met
     assert r.signal is not None
-    assert abs(r.signal) < 0.05
+    assert r.signal < 0.05
     assert r.verdict_hint == Verdict.CLEAN
-    # 原序和打乱都接近 100% 正确
-    assert r.evidence["mean_acc_original"] > 0.95
-    assert r.evidence["mean_acc_permuted"] > 0.95
 
 
-def test_position_sticky_model_signal_high():
-    """永远输出 A 的模型：原序里 answer_index=0 的题 → 100% 正确
-    （因为正确字母总是 A）；shuffle 后正确字母位置变了，模型还输出 A → 大概率错。
-    signal ≈ acc_orig - acc_perm 应明显大于 0.05。
-    """
-    # 全部 answer_index=0，原序下 sticky model 100% 正确；shuffle 后正确字母被随机分布
-    qs = [_mcq(i, n_opt=4, answer_idx=0) for i in range(60)]
-    r = option_permutation_test(
-        _PositionStickyModel(), _spec(), qs,
-        n_permutations=10, min_samples=50, seed=7,
-    )
+def test_memorized_model_leak_fraction_high():
+    """原序 logprob 离群 → 大量题判泄漏 → leak_fraction 高 → DIRTY。"""
+    qs = [_mcq(i, n_opt=4) for i in range(60)]
+    r = option_permutation_test(_MemorizedOrderModel(), _spec(), qs, min_samples=50, seed=7)
     assert r.prerequisites_met
     assert r.signal is not None
-    # 原序 100%, shuffle 后约 1/4（正确字母变到 A 的概率）→ signal ≈ 0.75
-    assert r.evidence["mean_acc_original"] == 1.0
-    assert r.evidence["mean_acc_permuted"] < 0.4
-    assert r.signal > 0.5
+    assert r.signal > 0.8
     assert r.verdict_hint == Verdict.DIRTY
 
 
-def test_evidence_contains_required_fields():
-    qs = [_mcq(i, n_opt=4, answer_idx=0) for i in range(60)]
+def test_clean_vs_memorized_separation():
+    qs = [_mcq(i, n_opt=4) for i in range(60)]
+    clean = option_permutation_test(_UniformModel(), _spec(), qs, min_samples=50, seed=7)
+    dirty = option_permutation_test(_MemorizedOrderModel(), _spec(), qs, min_samples=50, seed=7)
+    assert dirty.signal > clean.signal + 0.5
+
+
+def test_samples_permutations_when_factorial_too_large():
+    """选项数多（n! > max_permutations）时随机采样，恒含原序，仍能检出记忆。"""
+    qs = [_mcq(i, n_opt=6) for i in range(60)]   # 6! = 720 > 24
     r = option_permutation_test(
-        _PositionStickyModel(), _spec(), qs,
-        n_permutations=3, min_samples=50, seed=7,
+        _MemorizedOrderModel(), _spec(), qs,
+        max_permutations=24, min_samples=50, seed=7,
     )
+    assert r.prerequisites_met
+    assert r.evidence["mean_perms_per_q"] == 24
+    assert r.signal > 0.8   # 原序恒被采样 → 仍离群
+
+
+def test_evidence_contains_required_fields():
+    qs = [_mcq(i, n_opt=4) for i in range(60)]
+    r = option_permutation_test(_MemorizedOrderModel(), _spec(), qs, min_samples=50, seed=7)
     ev = r.evidence
     for k in (
-        "n_questions", "n_permutations",
-        "mean_acc_original", "mean_acc_permuted",
+        "n_questions", "n_valid", "max_permutations", "mean_perms_per_q",
+        "primary_threshold", "leak_fraction", "leak_fraction_by_threshold",
         "leak_score", "alpha_dirty", "alpha_suspect",
     ):
         assert k in ev, f"evidence missing {k}"
     assert ev["n_questions"] == 60
-    assert ev["n_permutations"] == 3
     assert ev["leak_score"] == r.signal
+    assert ev["leak_fraction"] == r.signal
+    # 三档阈值都在 by_threshold 里
+    for t in ("-0.2", "-0.17", "-0.15"):
+        assert t in ev["leak_fraction_by_threshold"]
 
 
-# ----------------------------- helper ----------------------------- #
+def test_custom_outlier_threshold_recorded():
+    qs = [_mcq(i, n_opt=4) for i in range(60)]
+    r = option_permutation_test(
+        _MemorizedOrderModel(), _spec(), qs, min_samples=50, seed=7,
+        outlier_threshold=-0.15,
+    )
+    assert r.evidence["primary_threshold"] == -0.15
+    assert "-0.15" in r.evidence["leak_fraction_by_threshold"]
 
 
-def test_predict_letter_argmax_logp():
-    """_predict_letter 应返回 logp 最大的字母。"""
-    qs = [_mcq(0, n_opt=4, answer_idx=2)]
-    correct = {0: "q0_opt2"}
-    model = _ContentTrackingModel(correct)
-    pred = _predict_letter(model, qs[0].prompt, qs[0].choices)
-    # opt2 在位置 C → mock model 给 C 高 logp
-    assert pred == "C"
+# ----------------------------- signal direction ----------------------------- #
 
 
 def test_signal_alignment_with_diff_matrix_direction():
-    """信号方向与 diff_matrix.signal_direction_for("perm_option") 对齐：
-    higher_is_dirtier，clean=0，sticky 应远大于 clean。
-    """
+    """信号方向 higher_is_dirtier：泄漏率越高越可疑。"""
     from model_contamination.attribution.diff_matrix import signal_direction_for
     assert signal_direction_for("perm_option") == "higher_is_dirtier"
-    # clean 信号 < sticky 信号 已在上面测试覆盖
-
-
-def test_next_token_logprobs_default_fallback_matches_logprobs():
-    """未 override next_token_logprobs 的 mock 后端应走 base 类默认 fallback，
-    结果等价于逐 candidate sum(logprobs)。这条覆盖 base.py 新加的默认实现。
-    """
-    model = _PositionStickyModel()  # 只实现 logprobs，next_token_logprobs 走 fallback
-    prompt = "Question: foo\nA. x\nAnswer:"
-    candidates = [" A", " B", " C"]
-    got = model.next_token_logprobs(prompt, candidates)
-    ref = np.array(
-        [float(np.sum(model.logprobs(prompt, c))) for c in candidates],
-        dtype=np.float64,
-    )
-    assert got.shape == (3,)
-    assert np.allclose(got, ref)
-    # PositionSticky 里 " A" 得 -0.1，其他 -5.0 → " A" argmax
-    assert int(np.argmax(got)) == 0
