@@ -38,6 +38,6 @@ stages:
   base:
     methods: [mink_plus_plus, perm_option]
   sft:
-    methods: [spv_mia, paraphrase, log_prober]
+    methods: [spv_mia, paraphrase]
   rlhf:
     methods: [self_critique, paraphrase]

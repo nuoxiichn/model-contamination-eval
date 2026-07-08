@@ -12,11 +12,12 @@
 - STRONG_SIGNALS：数据层无法/难以查到的独立方法学
     - `spv_mia`：跨 ckpt MIA，逮改写/蒸馏型污染（Session 8 验证）
     - `paraphrase`：黑盒改写攻击，覆盖数据层 n-gram miss 的场景
+    - `self_critique`：RL 后阶段熵坍缩探测——GRPO 抹除 SPV/MinK 信号后唯一仍可用的
+      实例级 MIA（arXiv:2510.09259），rlhf 阶段主力强信号
 
 - WEAK_SIGNALS：内部模型 + 数据可见时数据层已能覆盖，模型层辅助验证
     - `perm_option`：MC 位置记忆，数据层能 exact match（见 [[project-scope-internal-model]]）
     - `mink_plus_plus`：pretrain 阶段泄露，pretrain 数据层扫描已覆盖大部分
-    - `log_prober`：Q-A/-Q/-A 因子分解，主要提供归因辅助
     - `ts_guessing`：token-level 记忆，与 perm_option 重叠
 
 **MemLens 已删**（Session 12，2026-07-01）：论文的"早期层 shortcut"假设在
@@ -40,11 +41,11 @@ from model_contamination.types import (
 STRONG_SIGNALS = {
     "spv_mia",
     "paraphrase",
+    "self_critique",
 }
 WEAK_SIGNALS = {
     "perm_option",
     "mink_plus_plus",
-    "log_prober",
     "ts_guessing",
 }
 

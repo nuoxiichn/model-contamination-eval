@@ -25,7 +25,6 @@
 #   paraphrase     Paraphrase Stress Test（黑盒）
 #   mink_plus_plus Min-K%++（灰盒）
 #   spv_mia        SPV-MIA（灰盒，SFT 阶段最强）
-#   log_prober     LogProber（灰盒）
 #   self_critique  Self-Critique（黑盒，RLHF 后唯一可用）
 
 benchmarks:

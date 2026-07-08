@@ -117,7 +117,6 @@ _SIGNAL_DIRECTION: dict[str, str] = {
     "mink_plus_plus": "lower_is_dirtier",  # 单题分数越低越像 member
     "perm_option": "higher_is_dirtier",  # 原位置偏好率越高越可疑
     "ts_guessing": "higher_is_dirtier",  # 猜中率越高越可疑
-    "log_prober": "higher_is_dirtier",
     "self_critique": "higher_is_dirtier",
     "paraphrase": "lower_is_dirtier",
 }
