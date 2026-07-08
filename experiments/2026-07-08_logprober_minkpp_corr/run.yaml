@@ -1,0 +1,43 @@
+# LogProber vs Min-K%++ 信号相关性：WikiMIA + Pythia-6.9B
+#
+# 目的：判定 LogProber（arXiv:2408.14352）相对 Min-K%++ 是冗余还是互补。
+# 两者都从「单次前向的 per-token log-prob」派生，同源、同输入，可在一次前向里
+# 同时算出，成本≈Min-K%++ 复现本身。
+#
+# 三个信号（拆开归一化维度 vs 聚合维度）：
+#   minkpp     = bottom-K%( (chosen-μ)/σ )        —— 归一化 + bottom-k 聚合（现有方法）
+#   mink_loss  = bottom-K%( chosen )              —— 桥接项：raw + bottom-k 聚合
+#   logprober  = 累积 surprisal 曲线拟合 A(1-e^{-Bx}) 的 B（acceleration）
+#                                                 —— raw + 曲线水平度聚合（论文原版）
+# minkpp vs mink_loss 隔离「z-normalization」的贡献；
+# mink_loss vs logprober 隔离「bottom-k 聚合 → 曲线水平度」的贡献。
+#
+# 判据：
+#   Spearman ρ(logprober, minkpp) ≥ ~0.85 且 logprober AUROC ≤ minkpp → 冗余，保留 NotImplementedError
+#   ρ 中等(0.4~0.7) 且 AUROC 相当                                     → 可能互补，值得真实装
+#   logprober AUROC ≈ 0.5                                            → 此场景不 work，冗余
+#
+# WikiMIA 无 Q/A 划分，LogProber 的「聚焦 question」在此退化为「聚焦整段文本」，
+# 与 Min-K%++ 在 repro 里的用法一致 —— 两信号跑在完全相同的输入上，才是公平对照。
+# paraphrase 对照（论文用于区分 confidence vs contamination）不在本实验范围：
+# 相关性只需 per-item 原文水平度分数，paraphrase 会让前向×2，留作后续。
+#
+# 跑法（单卡即可，纯前向）：
+#   HF_ENDPOINT=https://hf-mirror.com HF_HOME=/mnt/public/code/chennuoxi/hf_cache \
+#   PYTHONPATH=src python3 experiments/2026-07-08_logprober_minkpp_corr/run_corr.py
+
+model:
+  name: pythia-6.9b
+  path: /mnt/public/code/chennuoxi/hf_cache/models/pythia-6.9b
+  stage_tag: base
+  dtype: bfloat16
+
+wikimia:
+  dataset: swj0419/WikiMIA
+  splits: [WikiMIA_length32, WikiMIA_length64, WikiMIA_length128]
+  limit: null          # null = 全量；每 split 几百条
+
+report_k: 0.2          # minkpp / mink_loss 的 bottom-K%（论文默认展示点）
+min_tokens_fit: 4      # LogProber 指数拟合所需最少 token 数，低于则该样本 B=NaN
+
+prefix: "\n\n"         # gpt_neox 无 BOS，用分隔符做 conditioning boundary（同 minkpp repro）

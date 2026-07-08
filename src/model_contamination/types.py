@@ -39,7 +39,6 @@ MethodTag = Literal[
     "paraphrase",
     "mink_plus_plus",
     "spv_mia",
-    "log_prober",
     "self_critique",
     "codec",
 ]

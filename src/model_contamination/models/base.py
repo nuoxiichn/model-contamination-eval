@@ -75,6 +75,25 @@ class ModelInterface(ABC):
             out[i] = float(np.sum(self.logprobs(prompt, c)))
         return out
 
+    def seq_logprob_sums(self, prompt: str, completions: list[str]) -> np.ndarray:
+        """同一 prompt 下、每个 completion 的**多 token 序列 log p 之和**，批量返回。
+
+        与 next_token_logprobs 的区别：那个假设 candidate 是单 token（字母选项），
+        走末位词表 lookup；本方法针对 completion 是**多 token 长文本**（perm_option
+        的选项块 "A:opt\\nB:opt\\n..."）的场景，返回 shape=(len(completions),)，
+        每格 = 该 completion 各 token log p 之和（≈ logprobs(prompt, c).sum()）。
+
+        默认实现：逐 completion 回退到 logprobs()（正确但慢，batch=1）。
+        HFLocalModel 覆写为 padded batch forward，一次前向算完所有 completion，
+        对大模型（72B）是关键吞吐优化。
+
+        前置：supports(Capability.LOGPROBS) is True。
+        """
+        out = np.empty(len(completions), dtype=np.float64)
+        for i, c in enumerate(completions):
+            out[i] = float(np.sum(self.logprobs(prompt, c)))
+        return out
+
     def token_logprob_stats(self, prompt: str, completion: str) -> dict[str, np.ndarray]:
         """返回 completion 每个 token 位置的 (chosen_logp, mu, sigma)。
 
