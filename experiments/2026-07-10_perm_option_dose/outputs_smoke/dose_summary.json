@@ -1,0 +1,132 @@
+{
+  "config": {
+    "model": {
+      "name": "qwen1.5b-smoke",
+      "path": "Qwen/Qwen2.5-1.5B",
+      "stage_tag": "base",
+      "dtype": "bfloat16",
+      "trust_remote_code": true,
+      "device_map": null
+    },
+    "target": {
+      "benchmark": "mmlu-cf",
+      "data_jsonl": "../2026-07-08_perm_option_scenario_b/outputs/data/mmlu-cf.jsonl",
+      "n_questions": 60
+    },
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.0,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ]
+    },
+    "train": {
+      "lr": 0.0002,
+      "total_batches": 20,
+      "batch_size": 8,
+      "max_len": 256,
+      "eval_batches": [
+        0,
+        20
+      ],
+      "gradient_checkpointing": true
+    },
+    "doses": [
+      0.0,
+      0.02,
+      0.05,
+      0.1,
+      0.2
+    ],
+    "filler": {
+      "dataset": "NeelNanda/pile-10k",
+      "pile_set_name": "Wikipedia (en)",
+      "chunk_chars": 400,
+      "n_chunks": 2000
+    },
+    "perm_option": {
+      "max_permutations": 24,
+      "min_samples": 50,
+      "outlier_threshold": -0.17,
+      "seed": 42
+    }
+  },
+  "final_leak_by_dose": {
+    "0.0": 0.48333333333333334,
+    "0.2": 0.31666666666666665
+  },
+  "spearman_rho_dose_leak": null,
+  "runs": {
+    "0.0": {
+      "dose": 0.0,
+      "target": "mmlu-cf",
+      "curve": [
+        {
+          "leak_fraction": 0.48333333333333334,
+          "leak_fraction_by_threshold": {
+            "-0.2": 0.26666666666666666,
+            "-0.17": 0.48333333333333334,
+            "-0.15": 0.6
+          },
+          "n_questions": 60,
+          "verdict": "dirty",
+          "prerequisites_met": true,
+          "error": null,
+          "batch": 0
+        },
+        {
+          "leak_fraction": 0.48333333333333334,
+          "leak_fraction_by_threshold": {
+            "-0.2": 0.31666666666666665,
+            "-0.17": 0.48333333333333334,
+            "-0.15": 0.6166666666666667
+          },
+          "n_questions": 60,
+          "verdict": "dirty",
+          "prerequisites_met": true,
+          "error": null,
+          "batch": 20
+        }
+      ]
+    },
+    "0.2": {
+      "dose": 0.2,
+      "target": "mmlu-cf",
+      "curve": [
+        {
+          "leak_fraction": 0.48333333333333334,
+          "leak_fraction_by_threshold": {
+            "-0.2": 0.26666666666666666,
+            "-0.17": 0.48333333333333334,
+            "-0.15": 0.6
+          },
+          "n_questions": 60,
+          "verdict": "dirty",
+          "prerequisites_met": true,
+          "error": null,
+          "batch": 0
+        },
+        {
+          "leak_fraction": 0.31666666666666665,
+          "leak_fraction_by_threshold": {
+            "-0.2": 0.16666666666666666,
+            "-0.17": 0.31666666666666665,
+            "-0.15": 0.4166666666666667
+          },
+          "n_questions": 60,
+          "verdict": "dirty",
+          "prerequisites_met": true,
+          "error": null,
+          "batch": 20
+        }
+      ]
+    }
+  }
+}

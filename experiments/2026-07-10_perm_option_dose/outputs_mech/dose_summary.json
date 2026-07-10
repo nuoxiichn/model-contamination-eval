@@ -1,0 +1,225 @@
+{
+  "config": {
+    "model": {
+      "name": "qwen1.5b-mech",
+      "path": "Qwen/Qwen2.5-1.5B",
+      "stage_tag": "base",
+      "dtype": "bfloat16",
+      "trust_remote_code": true,
+      "device_map": null
+    },
+    "target": {
+      "benchmark": "mmlu-cf",
+      "data_jsonl": "../2026-07-08_perm_option_scenario_b/outputs/data/mmlu-cf.jsonl",
+      "n_questions": 200
+    },
+    "lora": {
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.0,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ]
+    },
+    "train": {
+      "lr": 0.0002,
+      "batch_size": 8,
+      "max_len": 256,
+      "gradient_checkpointing": true
+    },
+    "dose": {
+      "max_epochs": 10,
+      "filler_mult": 0.0
+    },
+    "filler": {
+      "dataset": "NeelNanda/pile-10k",
+      "pile_set_name": "Wikipedia (en)",
+      "chunk_chars": 400,
+      "n_chunks": 2000
+    },
+    "perm_option": {
+      "max_permutations": 24,
+      "min_samples": 50,
+      "outlier_threshold": -0.17,
+      "seed": 42
+    }
+  },
+  "leak_by_epoch": {
+    "0": 0.425,
+    "1": 0.32,
+    "2": 0.37,
+    "3": 0.43,
+    "4": 0.58,
+    "5": 0.73,
+    "6": 0.86,
+    "7": 0.885,
+    "8": 0.955,
+    "9": 0.965,
+    "10": 0.96
+  },
+  "base_leak_epoch0": 0.425,
+  "final_leak": 0.96,
+  "spearman_rho_epoch_leak": 0.9636363636363637,
+  "curve": [
+    {
+      "leak_fraction": 0.425,
+      "leak_fraction_by_threshold": {
+        "-0.2": 0.215,
+        "-0.17": 0.425,
+        "-0.15": 0.615
+      },
+      "n_questions": 200,
+      "verdict": "dirty",
+      "prerequisites_met": true,
+      "error": null,
+      "epoch": 0,
+      "train_loss": null
+    },
+    {
+      "leak_fraction": 0.32,
+      "leak_fraction_by_threshold": {
+        "-0.2": 0.18,
+        "-0.17": 0.32,
+        "-0.15": 0.47
+      },
+      "n_questions": 200,
+      "verdict": "dirty",
+      "prerequisites_met": true,
+      "error": null,
+      "epoch": 1,
+      "train_loss": 1.9018461561203004
+    },
+    {
+      "leak_fraction": 0.37,
+      "leak_fraction_by_threshold": {
+        "-0.2": 0.165,
+        "-0.17": 0.37,
+        "-0.15": 0.505
+      },
+      "n_questions": 200,
+      "verdict": "dirty",
+      "prerequisites_met": true,
+      "error": null,
+      "epoch": 2,
+      "train_loss": 1.3875614738464355
+    },
+    {
+      "leak_fraction": 0.43,
+      "leak_fraction_by_threshold": {
+        "-0.2": 0.245,
+        "-0.17": 0.43,
+        "-0.15": 0.615
+      },
+      "n_questions": 200,
+      "verdict": "dirty",
+      "prerequisites_met": true,
+      "error": null,
+      "epoch": 3,
+      "train_loss": 0.9271129631996154
+    },
+    {
+      "leak_fraction": 0.58,
+      "leak_fraction_by_threshold": {
+        "-0.2": 0.285,
+        "-0.17": 0.58,
+        "-0.15": 0.7
+      },
+      "n_questions": 200,
+      "verdict": "dirty",
+      "prerequisites_met": true,
+      "error": null,
+      "epoch": 4,
+      "train_loss": 0.5359580266475678
+    },
+    {
+      "leak_fraction": 0.73,
+      "leak_fraction_by_threshold": {
+        "-0.2": 0.435,
+        "-0.17": 0.73,
+        "-0.15": 0.85
+      },
+      "n_questions": 200,
+      "verdict": "dirty",
+      "prerequisites_met": true,
+      "error": null,
+      "epoch": 5,
+      "train_loss": 0.339945901632309
+    },
+    {
+      "leak_fraction": 0.86,
+      "leak_fraction_by_threshold": {
+        "-0.2": 0.61,
+        "-0.17": 0.86,
+        "-0.15": 0.92
+      },
+      "n_questions": 200,
+      "verdict": "dirty",
+      "prerequisites_met": true,
+      "error": null,
+      "epoch": 6,
+      "train_loss": 0.24473022401332856
+    },
+    {
+      "leak_fraction": 0.885,
+      "leak_fraction_by_threshold": {
+        "-0.2": 0.72,
+        "-0.17": 0.885,
+        "-0.15": 0.95
+      },
+      "n_questions": 200,
+      "verdict": "dirty",
+      "prerequisites_met": true,
+      "error": null,
+      "epoch": 7,
+      "train_loss": 0.19290157437324523
+    },
+    {
+      "leak_fraction": 0.955,
+      "leak_fraction_by_threshold": {
+        "-0.2": 0.785,
+        "-0.17": 0.955,
+        "-0.15": 0.975
+      },
+      "n_questions": 200,
+      "verdict": "dirty",
+      "prerequisites_met": true,
+      "error": null,
+      "epoch": 8,
+      "train_loss": 0.16737416088581086
+    },
+    {
+      "leak_fraction": 0.965,
+      "leak_fraction_by_threshold": {
+        "-0.2": 0.79,
+        "-0.17": 0.965,
+        "-0.15": 0.99
+      },
+      "n_questions": 200,
+      "verdict": "dirty",
+      "prerequisites_met": true,
+      "error": null,
+      "epoch": 9,
+      "train_loss": 0.15661367654800415
+    },
+    {
+      "leak_fraction": 0.96,
+      "leak_fraction_by_threshold": {
+        "-0.2": 0.745,
+        "-0.17": 0.96,
+        "-0.15": 0.985
+      },
+      "n_questions": 200,
+      "verdict": "dirty",
+      "prerequisites_met": true,
+      "error": null,
+      "epoch": 10,
+      "train_loss": 0.14529356956481934
+    }
+  ]
+}

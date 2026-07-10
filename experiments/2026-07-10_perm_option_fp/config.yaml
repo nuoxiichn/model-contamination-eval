@@ -1,0 +1,52 @@
+# perm_option False-Positive 实验配置
+#
+# 问题：perm_option（Ni et al. AAAI 2025 Algorithm 2）在**确定未记住选项顺序**的干净
+# 数据上，leak_fraction 到底有多高（= 方法的假阳率 FPR），且如何随 (a) 模型规模 (b)
+# 选项内容类型 变化。
+#
+# 背景（scenario_b Finding）：小模型上连抗污染 mmlu-cf 都 ~0.42 假阳地板，72B 洗到 0.327。
+# 猜测：地板是「强 LM 流畅度偏好 → 某排列 logprob 天然最高 → IsolationForest 误判离群」。
+# 本实验用三档对照直接分解 FPR：
+#   mmlu-cf              真·抗污染 benchmark，选项流畅（复用 scenario_b 导出）
+#   synth-random         随机等长 token 串选项，无语义 → 无流畅度梯度 → 纯 IF 地板
+#   synth-fluent-mismatch 真流畅选项但跨题错配组装 → 单选项流畅但选项集从未共现
+# 若地板由流畅度驱动：synth-random < mmlu-cf/mismatch；若纯 IF artifact：三者接近。
+#
+# 信号：option_permutation_test 的 leak_fraction ∈ [0,1]，higher_is_dirtier。
+# 所有对照都是干净的（无记忆），故 leak_fraction 全部读作 **假阳率**。
+
+models:
+  - name: qwen2.5-1.5b
+    model_path: Qwen/Qwen2.5-1.5B
+    stage_tag: base
+    dtype: bfloat16
+    trust_remote_code: true
+
+  - name: qwen2.5-7b
+    model_path: Qwen/Qwen2.5-7B
+    stage_tag: base
+    dtype: bfloat16
+    trust_remote_code: true
+
+  - name: qwen2.5-72b
+    model_path: Qwen/Qwen2.5-72B
+    stage_tag: base
+    dtype: bfloat16
+    trust_remote_code: true
+    device_map: auto            # 72B 单卡装不下，accelerate 按层分片
+
+# make_fp_controls.py 把三个对照导出到 outputs/data/<name>.jsonl
+benchmarks:
+  - mmlu-cf                 # 真·抗污染对照（复用 scenario_b）
+  - synth-random           # 随机等长 token 选项（无流畅度）
+  - synth-fluent-mismatch  # 流畅但跨题错配选项
+
+params:
+  max_permutations: 24      # 4 选项=24 全枚举，与 scenario_b 一致
+  min_samples: 50
+  outlier_threshold: -0.17  # 论文 primary 阈值
+  seed: 42
+
+data_dir: outputs/data
+outputs:
+  path: outputs/results

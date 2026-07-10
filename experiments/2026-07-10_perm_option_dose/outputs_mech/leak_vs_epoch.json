@@ -1,0 +1,156 @@
+[
+  {
+    "leak_fraction": 0.425,
+    "leak_fraction_by_threshold": {
+      "-0.2": 0.215,
+      "-0.17": 0.425,
+      "-0.15": 0.615
+    },
+    "n_questions": 200,
+    "verdict": "dirty",
+    "prerequisites_met": true,
+    "error": null,
+    "epoch": 0,
+    "train_loss": null
+  },
+  {
+    "leak_fraction": 0.32,
+    "leak_fraction_by_threshold": {
+      "-0.2": 0.18,
+      "-0.17": 0.32,
+      "-0.15": 0.47
+    },
+    "n_questions": 200,
+    "verdict": "dirty",
+    "prerequisites_met": true,
+    "error": null,
+    "epoch": 1,
+    "train_loss": 1.9018461561203004
+  },
+  {
+    "leak_fraction": 0.37,
+    "leak_fraction_by_threshold": {
+      "-0.2": 0.165,
+      "-0.17": 0.37,
+      "-0.15": 0.505
+    },
+    "n_questions": 200,
+    "verdict": "dirty",
+    "prerequisites_met": true,
+    "error": null,
+    "epoch": 2,
+    "train_loss": 1.3875614738464355
+  },
+  {
+    "leak_fraction": 0.43,
+    "leak_fraction_by_threshold": {
+      "-0.2": 0.245,
+      "-0.17": 0.43,
+      "-0.15": 0.615
+    },
+    "n_questions": 200,
+    "verdict": "dirty",
+    "prerequisites_met": true,
+    "error": null,
+    "epoch": 3,
+    "train_loss": 0.9271129631996154
+  },
+  {
+    "leak_fraction": 0.58,
+    "leak_fraction_by_threshold": {
+      "-0.2": 0.285,
+      "-0.17": 0.58,
+      "-0.15": 0.7
+    },
+    "n_questions": 200,
+    "verdict": "dirty",
+    "prerequisites_met": true,
+    "error": null,
+    "epoch": 4,
+    "train_loss": 0.5359580266475678
+  },
+  {
+    "leak_fraction": 0.73,
+    "leak_fraction_by_threshold": {
+      "-0.2": 0.435,
+      "-0.17": 0.73,
+      "-0.15": 0.85
+    },
+    "n_questions": 200,
+    "verdict": "dirty",
+    "prerequisites_met": true,
+    "error": null,
+    "epoch": 5,
+    "train_loss": 0.339945901632309
+  },
+  {
+    "leak_fraction": 0.86,
+    "leak_fraction_by_threshold": {
+      "-0.2": 0.61,
+      "-0.17": 0.86,
+      "-0.15": 0.92
+    },
+    "n_questions": 200,
+    "verdict": "dirty",
+    "prerequisites_met": true,
+    "error": null,
+    "epoch": 6,
+    "train_loss": 0.24473022401332856
+  },
+  {
+    "leak_fraction": 0.885,
+    "leak_fraction_by_threshold": {
+      "-0.2": 0.72,
+      "-0.17": 0.885,
+      "-0.15": 0.95
+    },
+    "n_questions": 200,
+    "verdict": "dirty",
+    "prerequisites_met": true,
+    "error": null,
+    "epoch": 7,
+    "train_loss": 0.19290157437324523
+  },
+  {
+    "leak_fraction": 0.955,
+    "leak_fraction_by_threshold": {
+      "-0.2": 0.785,
+      "-0.17": 0.955,
+      "-0.15": 0.975
+    },
+    "n_questions": 200,
+    "verdict": "dirty",
+    "prerequisites_met": true,
+    "error": null,
+    "epoch": 8,
+    "train_loss": 0.16737416088581086
+  },
+  {
+    "leak_fraction": 0.965,
+    "leak_fraction_by_threshold": {
+      "-0.2": 0.79,
+      "-0.17": 0.965,
+      "-0.15": 0.99
+    },
+    "n_questions": 200,
+    "verdict": "dirty",
+    "prerequisites_met": true,
+    "error": null,
+    "epoch": 9,
+    "train_loss": 0.15661367654800415
+  },
+  {
+    "leak_fraction": 0.96,
+    "leak_fraction_by_threshold": {
+      "-0.2": 0.745,
+      "-0.17": 0.96,
+      "-0.15": 0.985
+    },
+    "n_questions": 200,
+    "verdict": "dirty",
+    "prerequisites_met": true,
+    "error": null,
+    "epoch": 10,
+    "train_loss": 0.14529356956481934
+  }
+]

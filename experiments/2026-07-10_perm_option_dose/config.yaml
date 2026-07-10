@@ -1,0 +1,74 @@
+# perm_option 剂量-响应实验（72B LoRA 注入）
+#
+# 问题：perm_option 的 leak_fraction 能否**单调反映污染剂量**（不只是「有没有」）。
+#
+# 剂量 = **曝光次数 / epoch**：在注入集（benchmark 题的固定规范选项块）上训练，每个
+# epoch 每题恰好看 1 次。一趟训到 max_epochs，**每个 epoch 结束测一次 leak_fraction**，
+# 直接得 leak_fraction-vs-epoch 曲线。epoch 0 = base（训练前 = FP 地板）。
+#
+# 为什么不是混合比例 p（2026-07-10 1.5B 冒烟证伪）：perm_option 要「把某固定顺序强记成
+# 离群点」，比 minkpp 的 membership 难得多，需要每题多次曝光（论文 LLaMA2 @-0.17 阈值
+# recall 1ep 49.8%→10ep 96.2%）。混合比例 p 在可行 batch 预算下每题仅 ~1.6 次曝光，
+# 记不住顺序 → 信号淹在 IsolationForest 噪声里。epoch 轴直接对齐论文 recall-vs-epoch 图。
+#
+# 注入文本 = perm_option 打分用的同一「选项块」的规范顺序（identity permutation）：
+#     "{question}:\nA:opt0\nB:opt1\n..."
+# 训练抬高这个固定顺序的序列概率 → perm_option 应把它检出为离群 → leak_fraction 升。
+#
+# 训练方式：72B base（device_map=auto 切多卡，**冻结**）+ **LoRA 适配器**（可训）。
+# 开发机（无 GPU）无法跑真模型；先在 GPU 机用 1.5B 验机制（见 RUNBOOK Gate D2）。
+#
+# ⚠️ 诚实声明（见 notes.md）：
+#   - LoRA modality ≠ 全参：容量受限，但过拟合几百条固定序列是 LoRA 易区间，足以验机制。
+#   - 固定规范顺序注入 = 检测**最强场景**（顺序信号最干净）→ leak_fraction 是可检测性上界。
+#   - 无 positive control → 只报**单调趋势 + Spearman rho(epoch, leak)**，不出绝对裁决（红线）。
+
+model:
+  name: qwen2.5-72b
+  path: Qwen/Qwen2.5-72B
+  stage_tag: base
+  dtype: bfloat16
+  trust_remote_code: true
+  device_map: auto            # 72B base 按层切到多卡；LoRA 层随宿主卡训练
+
+# 注入 + 检测的目标 benchmark：mmlu-cf（抗污染 → clean base，epoch 0 停在 FP 地板，
+# 有充足抬升空间；直接与 FP 实验的 mmlu-cf 列对接）。数据复用 scenario_b 导出。
+target:
+  benchmark: mmlu-cf
+  data_jsonl: ../2026-07-08_perm_option_scenario_b/outputs/data/mmlu-cf.jsonl
+  n_questions: 200            # 注入并检测的题数（LoRA 记忆固定集）
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+train:
+  lr: 2.0e-4                  # LoRA 常用量级（比全参高一档）
+  batch_size: 8
+  max_len: 256
+  gradient_checkpointing: true
+
+# 剂量轴：训到 max_epochs，每 epoch 每题看 1 次；每个 epoch 后测 leak_fraction。
+dose:
+  max_epochs: 10             # 对齐论文 LLaMA2 1~10 epoch 区间
+  filler_mult: 1.0           # 每 epoch 掺入 filler_mult×n_questions 条 filler 防退化
+                             # （不改注入曝光次数，每题仍每 epoch 1 次）。1.5B 纯机制验
+                             # 可传 --filler-mult 0 走纯注入最强信号。
+
+filler:
+  # 干净背景语料：mmlu-cf 是英文 MC，用英文 Pile-Wikipedia chunk（模型已见，仅稀释梯度）
+  dataset: NeelNanda/pile-10k
+  pile_set_name: Wikipedia (en)
+  chunk_chars: 400
+  n_chunks: 2000
+
+perm_option:
+  max_permutations: 24
+  min_samples: 50
+  outlier_threshold: -0.17
+  seed: 42
+
+# 预期：leak_fraction 随 epoch 单调升；epoch 0 停在 FP 地板；Spearman rho(epoch, leak)
+# 显著为正。复现论文 recall-vs-epoch 单调上升。
