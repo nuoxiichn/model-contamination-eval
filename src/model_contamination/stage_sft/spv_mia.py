@@ -185,7 +185,7 @@ def spv_mia(
                 "note": (
                     "Likely cause: completion too short (< _MIN_COMPLETION_WORDS=4) "
                     "for paraphrase, e.g. MC single-letter answers or 1-word numeric. "
-                    "math_cot loaders should populate raw['full_answer']."
+                    "math_cot loaders should populate q.full_answer with the CoT."
                 ),
             },
             error=f"Only {n_finite} finite scores out of {n_input} questions (likely too-short completions).",
@@ -355,16 +355,17 @@ def _split_prompt_completion(q: BenchmarkQuestion) -> tuple[str, str]:
         prompt    = "Question: ...\\nAnswer: "
         completion = 答案文本
 
-    math_cot 题型（GSM8K 等）：归一化 loader 把 `answer` 提成最终数值（"3"），完整
-    CoT 留在 raw['full_answer']。SFT 阶段训的就是 CoT+answer 全文（见
-    experiments/.../prep_bench_to_sft.py），所以 SPV-MIA 必须用 full_answer 才能看到
-    memorization。回退到 q.answer 仅在 raw 缺失时（保留兼容路径）。
+    math_cot 题型（GSM8K / MATH / MATH-500 等）：SFT 训的是完整 CoT+answer 全文
+    （见 experiments/.../prep_bench_to_sft.py），所以 SPV-MIA 必须用 CoT 全文才能看到
+    memorization。归一化 loader 已把 CoT 统一提到顶层 `q.full_answer`（各 benchmark
+    上游列名不同，由各自 normalizer 映射），这里**只读这一个固定字段、不猜 raw key**。
+    `full_answer` 为 None/空（该题型无 CoT）时才回退到 q.answer 作兼容。
 
     MC 题型 completion 是单字母（如 "B"），后续被 _MIN_COMPLETION_WORDS 过滤
     为 NaN，不参与 AUC。这是 SPV-MIA 在 MC 上的已知失效模式（与 guided 类似）。
     """
     if q.format == "math_cot":
-        cot = (q.raw or {}).get("full_answer")
+        cot = q.full_answer
         completion = cot if isinstance(cot, str) and cot.strip() else q.answer
         return f"Question: {q.prompt}\nAnswer: ", completion
     if q.format == "multiple_choice" and q.choices:

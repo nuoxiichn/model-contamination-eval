@@ -51,8 +51,8 @@ class BenchmarkQuestion:
     与 BenchmarkSpec 分离：spec 是 yaml 中的静态元信息（frozen），question 是
     运行时数据；方法层接收 (spec, questions) 两参数。
 
-    归一化原则：保留所有原始字段到 raw，但把"题面 / 选项 / 答案"提到顶层，让方法层
-    不必关心数据集自己的 column 命名。
+    归一化原则：保留所有原始字段到 raw，但把"题面 / 选项 / 答案 / 完整解答"提到顶层，
+    让方法层不必关心数据集自己的 column 命名。
     """
 
     id: str
@@ -62,6 +62,10 @@ class BenchmarkQuestion:
     answer: str                       # 标准化答案字符串（MC: 'A'/'B'...; math: 数值或 latex）
     choices: list[str] | None = None  # 仅 multiple_choice / cloze 有
     answer_index: int | None = None   # MC: 答案在 choices 中的下标（perm_option 用）
+    # 完整解答/CoT 原文（math_cot 的 SFT 训练文本）。归一化承诺字段：各 benchmark 上游
+    # 列名各异（gsm8k 'answer' 带 #### / math·math-500 'solution'），normalizer 统一映射
+    # 到这里，MIA 类方法（SPV-MIA 等）读固定字段、不猜 raw key。无 CoT 的题型为 None。
+    full_answer: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 

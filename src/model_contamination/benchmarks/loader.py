@@ -15,6 +15,7 @@ benchmark 名 dispatch 到具体 normalizer；未注册的 normalizer 显式 rai
 from __future__ import annotations
 
 import os
+import random
 import re
 from collections.abc import Callable, Iterable
 from typing import Any
@@ -31,27 +32,42 @@ def load_questions(
     limit: int | None = None,
     subset: str | None = None,
     indices: list[int] | None = None,
+    sample: int | None = None,
+    sample_seed: int = 42,
 ) -> list[BenchmarkQuestion]:
     """从 spec.data_id 加载题目并归一化。
 
     参数:
         spec:    benchmark 元信息
         split:   HF dataset split，默认 'test'；部分数据集要传 'validation'
-        limit:   截断前 N 条，None 全量；与 indices 互斥
+        limit:   截断前 N 条，None 全量；与 indices / sample 互斥
         subset:  HF dataset 子集名（如 mmlu 的学科），None 时按 normalizer 默认
         indices: 指定 HF 行号子集（与 SFT 注入 manifest 配套使用），按给定顺序取；
-                 与 limit 互斥。out-of-range 的下标直接报错，不静默跳过。
+                 与 limit / sample 互斥。out-of-range 的下标直接报错，不静默跳过。
+        sample:  从全量里随机抽 N 条（seeded，可复现）；与 limit / indices 互斥。
+                 用于 paraphrase 等不需要固定靠前题目、要覆盖分布的方法。
+        sample_seed: sample 的随机种子，固定则同 spec 每次抽到同一子集。
 
     返回:
         list[BenchmarkQuestion]
     """
-    if limit is not None and indices is not None:
-        raise ValueError("limit 与 indices 互斥，同时给出会产生歧义")
+    _n_selectors = sum(x is not None for x in (limit, indices, sample))
+    if _n_selectors > 1:
+        raise ValueError("limit / indices / sample 三者互斥，同时给出会产生歧义")
     if spec.data_id == "TBD":
         raise ValueError(
             f"benchmark {spec.name} 的 data_id 未确定（yaml 中为 'TBD'），"
             "需先在 configs/benchmarks.yaml 补全 HF 路径"
         )
+
+    if sample is not None:
+        # 全量加载 → seeded 随机抽 N 条（按原始行号排序保持稳定顺序，便于复现/审计）
+        full = load_questions(spec, split=split, subset=subset)
+        if sample >= len(full):
+            return full
+        rng = random.Random(sample_seed)
+        picked = sorted(rng.sample(range(len(full)), sample))
+        return [full[i] for i in picked]
 
     if spec.data_source == "local":
         return _load_local(spec, limit=limit)
@@ -134,7 +150,8 @@ def _normalize_gsm8k(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> Benc
         format="math_cot",
         prompt=row["question"],
         answer=final,
-        raw={"full_answer": raw_answer},
+        full_answer=raw_answer,
+        raw={},
     )
 
 
@@ -148,7 +165,8 @@ def _normalize_math(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> Bench
         format="math_cot",
         prompt=row["problem"],
         answer=final,
-        raw={"level": row.get("level"), "type": row.get("type"), "solution": solution},
+        full_answer=solution,
+        raw={"level": row.get("level"), "type": row.get("type")},
     )
 
 
@@ -160,8 +178,8 @@ def _normalize_math_500(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> B
         format="math_cot",
         prompt=row["problem"],
         answer=str(row.get("answer", "")).strip(),
-        raw={"level": row.get("level"), "subject": row.get("subject"),
-             "solution": row.get("solution", "")},
+        full_answer=row.get("solution", ""),
+        raw={"level": row.get("level"), "subject": row.get("subject")},
     )
 
 
@@ -215,13 +233,93 @@ def _normalize_evalplus(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> B
     )
 
 
+def _normalize_mmmlu(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> BenchmarkQuestion:
+    """openai/MMMLU: Question + A/B/C/D + Answer（字母）+ Subject（schema 同 MMLU-CF）。
+
+    多语言 MMLU 人工翻译；HF config = 语言码（ZH_CN / FR_FR / JA_JP / ...），由
+    data_subset 指定。4 选项，落 perm_option 有效区间（24 排列全枚举）。
+    """
+    choices = [row["A"], row["B"], row["C"], row["D"]]
+    letter = str(row["Answer"]).strip().upper()
+    ans_idx = _LETTERS.index(letter) if letter in _LETTERS else 0
+    return BenchmarkQuestion(
+        id=f"mmmlu-{idx}",
+        benchmark=spec.name,
+        format="multiple_choice",
+        prompt=row["Question"],
+        choices=choices,
+        answer=letter,
+        answer_index=ans_idx,
+        raw={"subject": row.get("Subject"), "lang": spec.data_subset},
+    )
+
+
+def _normalize_gpqa(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> BenchmarkQuestion:
+    """Idavidrein/gpqa（gated，需 HF_TOKEN）: Question + Correct Answer +
+    Incorrect Answer 1..3 → 4 选项（1 正确 + 3 错误）。config = gpqa_main /
+    gpqa_diamond / gpqa_extended，split 只有 train。
+
+    Algorithm 2 / perm_option 不依赖 gold 顺序；为避免其他 MC 方法吃到「答案恒 A」
+    的位置偏置，按 idx % 4 把正确项确定性地放到不同位置（可复现，无 RNG）。
+    原始字段可能带首尾空格，一律 strip。
+    """
+    correct = str(row["Correct Answer"]).strip()
+    incorrect = [
+        str(row["Incorrect Answer 1"]).strip(),
+        str(row["Incorrect Answer 2"]).strip(),
+        str(row["Incorrect Answer 3"]).strip(),
+    ]
+    pos = idx % 4
+    choices = incorrect[:pos] + [correct] + incorrect[pos:]
+    return BenchmarkQuestion(
+        id=f"{spec.name}-{idx}",
+        benchmark=spec.name,
+        format="multiple_choice",
+        prompt=str(row["Question"]).strip(),
+        choices=choices,
+        answer=_LETTERS[pos],
+        answer_index=pos,
+        raw={
+            "subdomain": row.get("Subdomain"),
+            "domain": row.get("High-level domain"),
+        },
+    )
+
+
+def _normalize_ceval(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> BenchmarkQuestion:
+    """ceval/ceval-exam: question + A/B/C/D + answer（字母）。
+
+    52 学科各一个 config（data_subset / subset 传学科名）；val split 带答案
+    （test split 官方留作 leaderboard，但镜像上也带 answer，可两者皆用）。
+    论文 Scenario b 只用题面+选项算序列 logprob，不依赖 answer，但保留 answer_index
+    便于对照与审计。
+    """
+    choices = [row["A"], row["B"], row["C"], row["D"]]
+    letter = str(row["answer"]).strip().upper()
+    ans_idx = _LETTERS.index(letter) if letter in _LETTERS else 0
+    return BenchmarkQuestion(
+        id=f"ceval-{idx}",
+        benchmark=spec.name,
+        format="multiple_choice",
+        prompt=row["question"],
+        choices=choices,
+        answer=letter,
+        answer_index=ans_idx,
+        raw={"subject": spec.data_subset, "src_id": row.get("id")},
+    )
+
+
 _NORMALIZERS: dict[str, Normalizer] = {
     "gsm8k": _normalize_gsm8k,
     "math": _normalize_math,
     "math-500": _normalize_math_500,
     "mmlu-pro": _normalize_mmlu_pro,
     "mmlu-cf": _normalize_mmlu_cf,
+    "mmmlu": _normalize_mmmlu,
+    "gpqa": _normalize_gpqa,
+    "gpqa-diamond": _normalize_gpqa,
     "evalplus": _normalize_evalplus,
+    "c-eval": _normalize_ceval,
 }
 
 

@@ -39,7 +39,7 @@ def test_normalize_gsm8k_extracts_final_answer():
     assert q.format == "math_cot"
     assert q.prompt == "2+3=?"
     assert q.answer == "5"
-    assert q.raw["full_answer"].endswith("#### 5")
+    assert q.full_answer.endswith("#### 5")
 
 
 def test_normalize_gsm8k_handles_comma_and_negatives():
@@ -63,9 +63,19 @@ def test_normalize_math_extracts_boxed():
 
 def test_normalize_math_500_passthrough_answer():
     row = {"problem": "p", "answer": "  3.14  ", "level": 5, "subject": "Algebra",
-           "solution": "..."}
+           "solution": "First expand, then \\boxed{3.14}."}
     q = _normalize_math_500(row, 0, _spec("math-500"))
     assert q.answer == "3.14"
+    # CoT 全文提到顶层 full_answer（SPV-MIA 等 MIA 方法读固定字段，不再掉进 raw）
+    assert q.full_answer == "First expand, then \\boxed{3.14}."
+
+
+def test_normalize_math_populates_full_answer():
+    row = {"problem": "Solve x.", "solution": "We get \\boxed{42} after two steps.",
+           "level": "Level 3", "type": "Algebra"}
+    q = _normalize_math(row, 0, _spec("math"))
+    assert q.answer == "42"
+    assert q.full_answer == "We get \\boxed{42} after two steps."
 
 
 def test_normalize_mmlu_pro_letter_and_index():

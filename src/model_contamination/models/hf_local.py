@@ -33,6 +33,8 @@ class HFLocalModel(ModelInterface):
         dtype: str | None = None,
         name: str | None = None,
         trust_remote_code: bool = False,
+        tokenizer_path: str | Path | None = None,
+        device_map: str | dict | None = None,
     ) -> None:
         try:
             import torch  # type: ignore[import-not-found]
@@ -58,19 +60,37 @@ class HFLocalModel(ModelInterface):
         else:
             self._dtype = getattr(torch, dtype)
 
+        # tokenizer 可从独立路径加载：LoRA merge 后 tokenizer 与 base 完全一致，
+        # 但 LlamaFactory export 会把 extra_special_tokens 写成 list（transformers>=4.57
+        # 要求 dict，加载即崩）。此时传 base 路径复用干净 tokenizer，避免改 ckpt 产物。
+        tok_src = str(tokenizer_path) if tokenizer_path is not None else str(self.model_path)
         self._tokenizer = AutoTokenizer.from_pretrained(
-            str(self.model_path), trust_remote_code=trust_remote_code
+            tok_src, trust_remote_code=trust_remote_code
         )
         if self._tokenizer.pad_token_id is None:
             # 多数 causal LM tokenizer 无 pad token；复用 eos 保证 batch 推理可跑
             self._tokenizer.pad_token = self._tokenizer.eos_token
         self._tokenizer.padding_side = "left"
 
-        self._model = AutoModelForCausalLM.from_pretrained(
-            str(self.model_path),
-            torch_dtype=self._dtype,
-            trust_remote_code=trust_remote_code,
-        ).to(self._device)
+        # device_map（多卡切分）：72B 等大模型单卡装不下，用 accelerate 按层分片。
+        # 此模式下不能再 .to()（各层已分散到不同卡），输入需放到 embedding 所在卡。
+        # forward 输出 logits 落在最后一层的卡：logprobs() 已把 target 搬到 logits.device
+        # 适配多卡（perm_option 走这条）。next_token_logprobs / token_logprob_stats 多卡下
+        # 需同法适配（picks/target → logits.device），本实验未走这两条路径，未验证。
+        if device_map is not None:
+            self._model = AutoModelForCausalLM.from_pretrained(
+                str(self.model_path),
+                torch_dtype=self._dtype,
+                trust_remote_code=trust_remote_code,
+                device_map=device_map,
+            )
+            self._device = str(self._model.get_input_embeddings().weight.device)
+        else:
+            self._model = AutoModelForCausalLM.from_pretrained(
+                str(self.model_path),
+                torch_dtype=self._dtype,
+                trust_remote_code=trust_remote_code,
+            ).to(self._device)
         self._model.eval()
 
         cfg = self._model.config
@@ -158,8 +178,9 @@ class HFLocalModel(ModelInterface):
         log_probs = self._torch.log_softmax(logits.float(), dim=-1)
 
         # 预测位置 i+1 的 token 用位置 i 的 logits；completion token index = [prompt_len, full_len)
-        target_ids = full_ids[0, prompt_len:full_len]                  # (n_completion,)
+        # device_map 多卡下 logits 落在最后一层的卡，target 需搬到同卡再 gather。
         pred_logits = log_probs[0, prompt_len - 1 : full_len - 1, :]   # (n_completion, vocab)
+        target_ids = full_ids[0, prompt_len:full_len].to(pred_logits.device)  # (n_completion,)
         token_logp = pred_logits.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
         return token_logp.detach().cpu().numpy().astype(np.float64)
 
@@ -215,6 +236,61 @@ class HFLocalModel(ModelInterface):
         out = np.empty(len(candidate_completions), dtype=np.float64)
         for i, c in enumerate(candidate_completions):
             out[i] = float(np.sum(self.logprobs(prompt, c)))
+        return out
+
+    def seq_logprob_sums(self, prompt: str, completions: list[str]) -> np.ndarray:
+        """batch：一次前向算同一 prompt 下所有 completion 的序列 logp 之和。
+
+        perm_option 的主吞吐路径：一题的 N 个选项排列（多 token 长文本）组 batch，
+        对 72B 等大模型比逐条前向快一个量级。
+
+        **按 token 长度分桶、桶内零 padding**（关键正确性保证）：一题各排列因选项
+        内容/分词边界不同，token 总长常不相等。任何 padding（无论 left/right）都会
+        引入位置编码/attention 歧义，实测 Δ~2e-2~4e-2（远超数值噪声）。故这里按真实
+        长度分桶，每桶内所有序列等长、无 pad → 与单条 logprobs 逐 bit 等价。24 个排列
+        通常只落 3~6 个长度桶，仍是 5~8× 提速。
+        """
+        n = len(completions)
+        if n == 0:
+            return np.zeros(0, dtype=np.float64)
+
+        prompt_len = len(self._tokenizer(prompt, add_special_tokens=True)["input_ids"])
+
+        # 逐条编码（不 padding），记录 token ids 与长度，按长度分桶
+        from collections import defaultdict
+        ids_per: list[list[int]] = []
+        buckets: dict[int, list[int]] = defaultdict(list)
+        for i, c in enumerate(completions):
+            ids = self._tokenizer(prompt + c, add_special_tokens=True)["input_ids"]
+            ids_per.append(ids)
+            buckets[len(ids)].append(i)
+
+        import os
+        mb = max(1, int(os.environ.get("PERM_SEQ_MICROBATCH", "8")))
+
+        out = np.empty(n, dtype=np.float64)
+        for full_len, idxs in buckets.items():
+            cl = full_len - prompt_len   # 该桶 completion token 数
+            # 超 context 或无 completion：逐条回退（logprobs 内部有左截断）
+            if cl <= 0 or (self._max_position is not None and full_len > self._max_position):
+                for i in idxs:
+                    out[i] = float(np.sum(self.logprobs(prompt, completions[i])))
+                continue
+            # 桶内等长，micro-batch 分块前向（防大模型 logits 爆显存）
+            for start in range(0, len(idxs), mb):
+                chunk = idxs[start:start + mb]
+                ids_b = self._torch.tensor(
+                    [ids_per[i] for i in chunk], device=self._device
+                )
+                with self._torch.no_grad():
+                    logits_b = self._model(input_ids=ids_b).logits
+                logp_b = self._torch.log_softmax(logits_b.float(), dim=-1)
+                # completion 占 [prompt_len, full_len)，预测位置 j 用 j-1 的 logits
+                tgt = ids_b[:, prompt_len:full_len].to(logp_b.device)      # (b, cl)
+                pred = logp_b[:, prompt_len - 1 : full_len - 1, :]         # (b, cl, vocab)
+                summed = pred.gather(-1, tgt.unsqueeze(-1)).squeeze(-1).sum(dim=1)
+                for j, i in enumerate(chunk):
+                    out[i] = float(summed[j].item())
         return out
 
     # ----------------------------- token-level distribution stats ----------------------------- #
