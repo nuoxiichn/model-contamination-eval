@@ -1,0 +1,34 @@
+# Self-Critique GSM8K RL-MIA 检测配置
+#
+# 忠实复现 self_critique（arXiv:2510.09259）的 RL policy-collapse 检测：
+#   member 半经 GRPO 训练（GSM8K 可解→真 collapse），non-member 半没见过，
+#   self_critique 看 member score(熵序列相似度) 是否显著高于 non-member。
+#
+# 两个 ckpt 对照跑：
+#   1. null baseline = 原始 Qwen2.5-7B-Instruct（下面 path）→ 预期 AUC≈0.5（未注入不假阳）
+#   2. 正结果        = train/launch_gsm8k_grpo.sh 训练后的 RL ckpt（换 model.path）
+#      → 预期 member 被 collapse，AUC 显著 >0.5
+#
+# 换 ckpt 只改 model.path 一行；--out-subdir 区分两次结果目录。
+
+model:
+  path: /mnt/public/code/chennuoxi/model-contamination-eval/experiments/2026-07-13_self_critique_gsm8k_rl/outputs/merged_rl_step20
+  stage_tag: rlhf
+  dtype: bfloat16
+  tokenizer_path: null
+
+data:
+  files:
+    - outputs/detection.parquet    # build_gsm8k_mia_split.py 产出；100 题 50 member/50 non-member
+
+# GSM8K 回答短（~150-300 token），生成上限比 AIME 小即可
+generation:
+  temperature: 0.0
+  max_tokens: 512            # pass1 上限
+  critique_max_tokens: 768   # pass2 上限
+  max_response_tokens: 1200
+
+critique_instruction: null
+
+shards:
+  nshards: 1                 # 本机单卡 null baseline；8 卡机跑 RL ckpt 传参覆盖

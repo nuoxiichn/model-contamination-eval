@@ -1,0 +1,40 @@
+# Self-Critique AIME24/25 复现（arXiv:2510.09259）
+#
+# 目的：在 MetaX 8 卡机上复现论文 Self-Critique 在 AIME24/AIME25 RL-MIA 上的 F1 + AUC。
+#
+# ⚠️ member 是人为注入 split（每集 15 member / 15 non-member）。论文正 AUC 来自
+# 用 member 题 GRPO 训过的污染 ckpt。用**原始 Qwen2.5-7B-Instruct** 跑 → 预期
+# AUC≈0.5（null baseline），验证实装正确 + 方法在未污染模型不假阳。要复现论文正
+# 结果需先训污染 ckpt（见 reference/paper_train_grpo_RLMIA_qwen_instruct.sh + notes.md）。
+#
+# model_path 参数化：null baseline 指原始 Instruct；正结果指训练后 ckpt，脚本复用。
+
+model:
+  # 共享存储本地路径（无需下载）；换污染 ckpt 只改这一行
+  path: /mnt/public/model/huggingface/Qwen2.5-7B-Instruct
+  stage_tag: rlhf          # Qwen2.5-Instruct 经 SFT+RLHF，self_critique 的 RL 阶段前提成立
+  dtype: bfloat16
+  # tokenizer 与权重同源；若 export 产物 tokenizer 崩可另指 base 路径（见 env-facts）
+  tokenizer_path: null
+
+data:
+  # 论文 RL-MIA 检测集（本目录 data/，已随实验归档）
+  files:
+    - data/RLMIA_aime24.parquet    # data_source=aime,   30 题 15/15
+    - data/RLMIA_aime25.parquet    # data_source=aime25, 30 题 15/15
+
+# 生成参数（standard 规模；论文用 4096/4096，两趟均 greedy temperature=0）
+generation:
+  temperature: 0.0         # 论文 self_critique 两趟均贪心
+  max_tokens: 1024         # pass1 上限
+  critique_max_tokens: 2048  # pass2 上限（论文 max_tokens*2）
+  # critique prompt 内嵌 pass1 回答，超长按 token 截断留出 context
+  max_response_tokens: 3000
+
+# 复刻论文官方 critique 指令（generate_full_data.py::SELF_CRITIQUE_INSTRUCTION 逐字）
+# 留空则用 self_critique._SELF_CRITIQUE_INSTRUCTION（同一字符串）
+critique_instruction: null
+
+# 8 卡分片：每进程 CUDA_VISIBLE_DEVICES=i 只见 1 卡，处理 questions[i::nshards]
+shards:
+  nshards: 8
