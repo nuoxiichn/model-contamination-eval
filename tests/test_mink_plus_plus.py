@@ -18,9 +18,9 @@ import pytest
 from model_contamination.models.base import Capability, ModelInterface
 from model_contamination.stage_base.min_k_plus_plus import (
     _auc_target_vs_control,
-
     _location_with_raw,
     _mink_pp_sample_score,
+    _summary_stats,
     mink_plus_plus,
 )
 from model_contamination.types import BenchmarkQuestion, BenchmarkSpec, Verdict
@@ -264,3 +264,42 @@ def test_mean_only_mode_uses_estimator_signal():
             float(np.mean(r.evidence["target_scores"]))
         )
     assert r_mean.evidence["target_mean"] == r_mean.evidence["target_mean_raw"]
+
+
+# ----------------------------- summary_stats（生产弱信号输出） ----------------------------- #
+
+
+def test_summary_stats_fields_and_values():
+    scores = np.array([1.0, 2.0, 3.0, 4.0, 100.0])  # 一个强 outlier 模拟被记忆样本
+    s = _summary_stats(scores)
+    assert set(s) == {"mean_score", "median_score", "top5_percent_mean", "max_score", "std"}
+    assert s["mean_score"] == pytest.approx(22.0)
+    assert s["median_score"] == pytest.approx(3.0)
+    assert s["max_score"] == pytest.approx(100.0)
+    # n=5 → top 5% 至少 1 个 → 等于 max
+    assert s["top5_percent_mean"] == pytest.approx(100.0)
+    assert s["std"] == pytest.approx(float(np.std(scores, ddof=1)))
+
+
+def test_summary_stats_top5_percent_on_large_n():
+    # n=100 → top 5% = 5 个最高分的均值
+    scores = np.arange(100, dtype=np.float64)  # 0..99
+    s = _summary_stats(scores)
+    assert s["top5_percent_mean"] == pytest.approx(np.mean([95, 96, 97, 98, 99]))
+    assert s["max_score"] == pytest.approx(99.0)
+
+
+def test_summary_stats_empty_returns_none():
+    s = _summary_stats(np.array([]))
+    assert all(v is None for v in s.values())
+
+
+def test_mean_only_evidence_carries_summary_stats():
+    qs = [_q(i) for i in range(40)]
+    r = mink_plus_plus(_SeededStatsModel(), _spec(), qs, min_samples=30)
+    ss = r.evidence["summary_stats"]
+    assert set(ss) == {"mean_score", "median_score", "top5_percent_mean", "max_score", "std"}
+    # summary_stats 基于原始 per-sample scores（非 estimator 输出）
+    scores = np.asarray(r.evidence["target_scores"])
+    assert ss["mean_score"] == pytest.approx(float(np.mean(scores)))
+    assert ss["max_score"] == pytest.approx(float(np.max(scores)))

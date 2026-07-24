@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/model-contamination-eval/run-config.schema.json",
+  "title": "Model contamination evaluation run config",
+  "type": "object",
+  "required": ["schema_version", "run", "model", "benchmarks", "methods"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "run": {
+      "type": "object",
+      "required": ["id", "seed", "output_dir"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "seed": {"type": "integer"},
+        "output_dir": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "model": {
+      "type": "object",
+      "required": ["backend", "path", "stage"],
+      "properties": {
+        "backend": {"type": "string", "enum": ["hf_local"]},
+        "path": {"type": "string"},
+        "stage": {"type": "string", "enum": ["base", "sft", "rlhf"]}
+      },
+      "additionalProperties": true
+    },
+    "benchmarks": {"type": "array", "minItems": 1},
+    "methods": {"type": "array", "minItems": 1}
+  },
+  "additionalProperties": true
+}

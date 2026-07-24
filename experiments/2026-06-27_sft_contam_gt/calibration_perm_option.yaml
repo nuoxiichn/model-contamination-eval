@@ -1,12 +1,12 @@
 purpose: |
-  perm_option calibration：7 ckpt × mmlu-pro 200 题 × n_permutations=5。
+  perm_option calibration：7 ckpt × mmlu-pro 200 题（Ni et al. AAAI 2025 Algorithm 2）。
   补救 calibration v3 中 SPV-MIA 在 MMLU-Pro 上全部 degraded 的方法学空白
   （[[calibration-findings-2026-06-29]] Finding 9 / notes.md §U.5）。
 
   预期信号方向：
-  - signal = mean_acc_orig - mean_acc_permuted
-  - 干净模型：signal ≈ 0（shuffle 选项不影响识别）
-  - 污染模型：signal > 0（原序记忆比 shuffle 更准）
+  - signal = leak_fraction（各题选项块序列 logprob 的最大值被 IsolationForest 判离群的占比）
+  - 干净模型：leak_fraction 接近 IsolationForest 基线假阳率（低）
+  - 污染模型：leak_fraction 显著抬升（记住的顺序 logprob 离群）
   - mmlu_heavy ckpt 应在 mmlu-pro 上显著高于 clean → 验证 U.6 中 mmlu_heavy×gsm8k = -6.12 异常
 
   perm_option 仅适用 multiple_choice → 只跑 mmlu-pro。base ckpt 一并跑，
@@ -49,7 +49,7 @@ params:
   device: cuda
   dtype: bfloat16
   perm_option:
-    n_permutations: 5
+    max_permutations: 24
     min_samples: 50
     seed: 42
 

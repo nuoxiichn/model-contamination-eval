@@ -34,12 +34,10 @@ BenchmarkFormat = Literal[
 ]
 
 MethodTag = Literal[
-    "ts_guessing",
     "perm_option",
     "paraphrase",
     "mink_plus_plus",
     "spv_mia",
-    "self_critique",
     "codec",
 ]
 
@@ -125,25 +123,6 @@ class BenchmarkVerdict:
 
 
 @dataclass
-class StageAttribution:
-    """单 benchmark 的阶段归因结果。"""
-
-    benchmark: str
-    has_pre_sft_checkpoint: bool
-    delta_score: float | None
-    delta_mia_auc: float | None
-    conclusion: Literal[
-        "pretrain_only",
-        "sft_introduced",
-        "rl_migrated",
-        "joint",
-        "unattributable",      # 缺前置 / 信息论上不可分
-    ]
-    confidence: Literal["high", "medium", "low"]
-    evidence: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
 class ModelCheckpoint:
     """checkpoint 引用。stage_tag 决定走哪条阶段分支。"""
 
@@ -151,4 +130,4 @@ class ModelCheckpoint:
     stage: Stage
     name: str
     parent_checkpoint: Path | None = None   # 用于差分归因（如 SFT 指向 base）
-    data_source_tags: list[str] = field(default_factory=list)  # 数据配方反馈用
+    data_source_tags: list[str] = field(default_factory=list)

@@ -77,15 +77,7 @@ _MIN_COMPLETION_WORDS = 4
 
 # 默认 word pool（高频英文词 + 标点）。用于 word-level random substitution。
 # 长度 ~100 足以让 paraphrase 不退化到"全空"或"全相同"。
-_DEFAULT_WORD_POOL = (
-    "the a an of and or to in on at by for from with as is are was were be been being "
-    "this that these those it its they them their he she him her his hers we us our ours "
-    "you your one two three four five six seven eight nine ten "
-    "however therefore because although since while when where why how what which who "
-    "if then than such so but yet still not no yes maybe perhaps possibly "
-    "good bad small large new old high low first last same different "
-    ". , ; : ? ! - "
-).split()
+_DEFAULT_WORD_POOL = ["the", "a", "an", "of", "and", "or", "to", "in", "on", "at", "by", "for", "from", "with", "as", "is", "are", "was", "were", "be", "been", "being", "this", "that", "these", "those", "it", "its", "they", "them", "their", "he", "she", "him", "her", "his", "hers", "we", "us", "our", "ours", "you", "your", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "however", "therefore", "because", "although", "since", "while", "when", "where", "why", "how", "what", "which", "who", "if", "then", "than", "such", "so", "but", "yet", "still", "not", "no", "yes", "maybe", "perhaps", "possibly", "good", "bad", "small", "large", "new", "old", "high", "low", "first", "last", "same", "different", ".", ",", ";", ":", "?", "!", "-"]
 
 Paraphraser = Literal["random"]  # v2 add "self" / "t5"
 
@@ -362,7 +354,7 @@ def _split_prompt_completion(q: BenchmarkQuestion) -> tuple[str, str]:
     `full_answer` 为 None/空（该题型无 CoT）时才回退到 q.answer 作兼容。
 
     MC 题型 completion 是单字母（如 "B"），后续被 _MIN_COMPLETION_WORDS 过滤
-    为 NaN，不参与 AUC。这是 SPV-MIA 在 MC 上的已知失效模式（与 guided 类似）。
+    为 NaN，不参与 AUC。这是 SPV-MIA 在 MC 上的已知失效模式（短答案无法形成稳定邻居扰动）。
     """
     if q.format == "math_cot":
         cot = q.full_answer

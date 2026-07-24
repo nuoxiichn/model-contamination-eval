@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/model-contamination-eval/run-manifest.schema.json",
+  "title": "Evaluation run manifest",
+  "type": "object",
+  "required": ["schema_version", "run_id", "code", "model", "benchmarks", "timing", "tasks"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "run_id": {"type": "string"},
+    "code": {
+      "type": "object",
+      "required": ["git_commit", "dirty"],
+      "properties": {"git_commit": {"type": "string"}, "dirty": {"type": "boolean"}}
+    },
+    "model": {"type": "object"},
+    "benchmarks": {"type": "array"},
+    "timing": {"type": "object"},
+    "resources": {"type": "object"},
+    "tasks": {"type": "array"},
+    "artifacts": {"type": "array"}
+  },
+  "additionalProperties": true
+}

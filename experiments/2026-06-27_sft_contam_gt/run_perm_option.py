@@ -142,9 +142,10 @@ def _write_csv(all_results: dict, csv_path: Path) -> None:
                 "verdict_hint": r.get("verdict_hint"),
                 "prerequisites_met": r.get("prerequisites_met"),
                 "n_questions": ev.get("n_questions"),
-                "n_permutations": ev.get("n_permutations"),
-                "mean_acc_original": ev.get("mean_acc_original"),
-                "mean_acc_permuted": ev.get("mean_acc_permuted"),
+                "max_permutations": ev.get("max_permutations"),
+                "mean_perms_per_q": ev.get("mean_perms_per_q"),
+                "primary_threshold": ev.get("primary_threshold"),
+                "leak_fraction": ev.get("leak_fraction"),
                 "leak_score": ev.get("leak_score"),
                 "elapsed_seconds": bench_blob.get("elapsed_seconds"),
                 "error": r.get("error"),
@@ -219,7 +220,7 @@ def main() -> None:
             t0 = time.time()
             r = option_permutation_test(
                 model, spec, questions,
-                n_permutations=perm_params["n_permutations"],
+                max_permutations=perm_params["max_permutations"],
                 min_samples=perm_params["min_samples"],
                 seed=perm_params["seed"],
             )
@@ -227,8 +228,8 @@ def main() -> None:
             ev = r.evidence or {}
             print(
                 f"    [perm_option] signal={_fmt(r.signal)}, "
-                f"acc_orig={_fmt(ev.get('mean_acc_original'))}, "
-                f"acc_perm={_fmt(ev.get('mean_acc_permuted'))}, "
+                f"leak_frac={_fmt(ev.get('leak_fraction'))}, "
+                f"mean_perms={_fmt(ev.get('mean_perms_per_q'))}, "
                 f"n_q={ev.get('n_questions')}, "
                 f"verdict={r.verdict_hint!r}, elapsed={dt:.1f}s"
                 + (f", err={r.error}" if r.error else "")

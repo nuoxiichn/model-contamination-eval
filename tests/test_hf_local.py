@@ -17,17 +17,59 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+if os.environ.get("RUN_HF_SMOKE") != "1":
+    pytest.skip(
+        "HF model smoke is opt-in; set RUN_HF_SMOKE=1 to download/run it",
+        allow_module_level=True,
+    )
+
 torch = pytest.importorskip("torch")
 transformers = pytest.importorskip("transformers")
 
-from model_contamination.models.base import Capability
-from model_contamination.models.hf_local import HFLocalModel
+from model_contamination.models.base import Capability  # noqa: E402
+from model_contamination.models.hf_local import HFLocalModel  # noqa: E402
 
 MODEL_ID = "hf-internal-testing/tiny-random-gpt2"
+
+
+class _WhitespaceDroppingTokenizer:
+    """Minimal tokenizer reproducing DeepSeek's empty ``"\n\n"`` encoding."""
+
+    bos_token_id = 1
+    eos_token_id = 2
+
+    def __call__(self, text, *, return_tensors=None, add_special_tokens=True):
+        del add_special_tokens
+        ids = [3 + (ord(char) % 10) for char in text if not char.isspace()]
+        if return_tensors == "pt":
+            return {"input_ids": torch.tensor([ids], dtype=torch.long)}
+        return {"input_ids": ids}
+
+
+class _FullSequenceModel:
+    config = SimpleNamespace(vocab_size=16, bos_token_id=1, eos_token_id=2)
+
+    def __call__(self, *, input_ids, **kwargs):
+        del kwargs
+        batch, seq_len = input_ids.shape
+        logits = torch.arange(16, dtype=torch.float32).repeat(batch, seq_len, 1)
+        return SimpleNamespace(logits=logits)
+
+
+def _empty_prompt_model() -> HFLocalModel:
+    model = object.__new__(HFLocalModel)
+    model.name = "empty-prompt-test"
+    model._torch = torch
+    model._tokenizer = _WhitespaceDroppingTokenizer()
+    model._model = _FullSequenceModel()
+    model._device = "cpu"
+    model._max_position = None
+    return model
 
 
 @pytest.fixture(scope="module")
@@ -77,6 +119,22 @@ def test_logprobs_length_matches_completion_tokens(tiny_model: HFLocalModel) -> 
 def test_logprobs_empty_completion(tiny_model: HFLocalModel) -> None:
     lp = tiny_model.logprobs("hi", "")
     assert lp.shape == (0,)
+
+
+def test_whitespace_only_prompt_gets_bos_conditioning_token() -> None:
+    """DeepSeek drops ``"\n\n"``; CoDeC/Min-K++ must still score all tokens."""
+    model = _empty_prompt_model()
+    prompt, completion = "\n\n", "AB"
+
+    lp = model.logprobs(prompt, completion)
+    stats = model.token_logprob_stats(prompt, completion)
+    sums = model.seq_logprob_sums(prompt, [completion, "CD"])
+
+    assert lp.shape == (2,)
+    assert stats["chosen_logp"].shape == (2,)
+    assert np.allclose(stats["chosen_logp"], lp)
+    assert sums.shape == (2,)
+    assert np.isclose(sums[0], lp.sum())
 
 
 def test_token_logprob_stats_shapes_and_signs(tiny_model: HFLocalModel) -> None:

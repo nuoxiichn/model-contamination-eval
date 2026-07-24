@@ -16,7 +16,6 @@ from model_contamination.shared.evaluator import (
 )
 from model_contamination.types import BenchmarkQuestion
 
-
 # ----------------------------- mock model ----------------------------- #
 
 

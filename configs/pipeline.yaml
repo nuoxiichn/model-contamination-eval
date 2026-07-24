@@ -13,7 +13,7 @@ max_samples_per_benchmark: 1000
 
 paraphrase:
   n_paraphrases: 5
-  paraphraser: gpt-4-mini    # 或本地小模型；空字符串走规则改写
+  paraphraser: rule          # 当前实现；远程模型改写尚未纳入可复现生产链路
   worst_case_drop_threshold: 0.15
 
 mink_plus_plus:
@@ -29,15 +29,15 @@ spv_mia:
 verdict:
   red_min_strong_signals: 2     # 强信号 ≥ 2 → 红灯
   yellow_min_signals: 1
-  strong_signals: [paraphrase, spv_mia]
+  strong_signals: [codec, paraphrase, spv_mia]
   weak_signals: [mink_plus_plus, perm_option]
 
 # ============ Stage 默认方法集 ============
 
 stages:
   base:
-    methods: [mink_plus_plus, perm_option]
+    methods: [codec, mink_plus_plus, perm_option]
   sft:
-    methods: [spv_mia, paraphrase]
+    methods: [codec, spv_mia, paraphrase, perm_option]
   rlhf:
-    methods: [self_critique, paraphrase]
+    methods: [codec, mink_plus_plus, paraphrase]

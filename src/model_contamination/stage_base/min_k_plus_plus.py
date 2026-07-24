@@ -116,6 +116,9 @@ def mink_plus_plus(
                 "target_mean": location,           # 保持字段名向后兼容；值是 estimator 输出
                 "target_mean_raw": raw_mean,       # 原始 np.mean，便于对照 outlier 影响
                 "target_std": float(np.std(target_scores, ddof=1)) if len(target_scores) > 1 else 0.0,
+                # 生产弱信号输出：per-sample score 分布的 5 个统计量（无 control 亦可读）。
+                # top5%/max 捕获「少数样本被强记忆」——mean 被稀释时仍有信号。
+                "summary_stats": _summary_stats(target_scores),
                 "target_scores": target_scores.tolist(),
                 "note": (
                     "No control set; AUC unavailable. base-stage Min-K%++ AUC ≈ 0.5"
@@ -154,6 +157,7 @@ def mink_plus_plus(
             "target_mean": float(np.mean(target_scores)),
             "control_mean": float(np.mean(control_scores)),
             "delta_mean": float(np.mean(target_scores) - np.mean(control_scores)),
+            "summary_stats": _summary_stats(target_scores),
             "target_scores": target_scores.tolist(),
             "control_scores": control_scores.tolist(),
         },
@@ -220,6 +224,34 @@ def _mink_pp_sample_score(
 
 def _filter_finite(arr: np.ndarray) -> np.ndarray:
     return arr[np.isfinite(arr)]
+
+
+def _summary_stats(scores: np.ndarray) -> dict:
+    """Per-sample score 分布的弱信号摘要（无需 control）。
+
+    生产输出：higher = 更像被记忆。字段：
+    - mean_score / median_score / std：整体位置与离散
+    - top5_percent_mean：得分最高 5% 样本的均值——少数样本被强记忆时，
+      mean 被大量干净样本稀释，top5%/max 仍能拎出信号
+    - max_score：单个最强记忆样本
+
+    n 很小时 top-5% 至少取 1 个（≈max）。scores 需已过滤非有限值。
+    """
+    n = len(scores)
+    if n == 0:
+        return {
+            "mean_score": None, "median_score": None,
+            "top5_percent_mean": None, "max_score": None, "std": None,
+        }
+    k = max(1, int(np.ceil(0.05 * n)))
+    top_k = np.sort(scores)[n - k:]
+    return {
+        "mean_score": float(np.mean(scores)),
+        "median_score": float(np.median(scores)),
+        "top5_percent_mean": float(np.mean(top_k)),
+        "max_score": float(np.max(scores)),
+        "std": float(np.std(scores, ddof=1)) if n > 1 else 0.0,
+    }
 
 
 def _location_with_raw(

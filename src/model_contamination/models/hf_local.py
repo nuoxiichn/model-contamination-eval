@@ -148,6 +148,117 @@ class HFLocalModel(ModelInterface):
 
     # ----------------------------- logprobs ----------------------------- #
 
+    def _conditioning_token_id(self) -> int:
+        """Return a valid token for conditioning the first completion token.
+
+        Some Llama-family tokenizers (notably DeepSeek under transformers 5.x)
+        return an empty sequence for whitespace-only prompts such as ``"\\n\\n"``.
+        In that case there is no logits position for the first completion token;
+        prepend a BOS token to create an explicit conditioning boundary.
+        """
+        candidates = (
+            getattr(self._tokenizer, "bos_token_id", None),
+            getattr(getattr(self._model, "config", None), "bos_token_id", None),
+            getattr(self._tokenizer, "eos_token_id", None),
+            getattr(getattr(self._model, "config", None), "eos_token_id", None),
+        )
+        vocab_size = getattr(getattr(self._model, "config", None), "vocab_size", None)
+        for token_id in candidates:
+            if token_id is None:
+                continue
+            token_id = int(token_id)
+            if token_id >= 0 and (vocab_size is None or token_id < int(vocab_size)):
+                return token_id
+        raise RuntimeError(
+            f"{self.name}: tokenizer produced an empty prompt token sequence, "
+            "but neither tokenizer nor model config provides a valid BOS/EOS token"
+        )
+
+    def _encode_prompt_completion(self, prompt: str, completion: str):
+        """Encode a pair and ensure the first completion has a prediction position."""
+        prompt_ids = self._tokenizer(
+            prompt, return_tensors="pt", add_special_tokens=True
+        )["input_ids"]
+        full_ids = self._tokenizer(
+            prompt + completion, return_tensors="pt", add_special_tokens=True
+        )["input_ids"]
+        prompt_len = int(prompt_ids.shape[1])
+        full_len = int(full_ids.shape[1])
+        if full_len > prompt_len and prompt_len == 0:
+            bos = self._torch.tensor(
+                [[self._conditioning_token_id()]], dtype=full_ids.dtype
+            )
+            full_ids = self._torch.cat((bos, full_ids), dim=1)
+            prompt_len = 1
+        return prompt_len, full_ids
+
+    def _forward_logits(self, input_ids):
+        """前向取 logits，防御「只返回末位 logits」的后端。
+
+        部分模型/后端组合（实测 deepseek-llm-7b 在 transformers 5.6 + MetaX 上）
+        对普通 forward 只返回最后一个位置的 logits（seq 维=1），导致 codec / mink
+        这类需要中间位置 logp 的路径 gather 到空张量（cryptic「self [0, vocab]」）。
+        这里检测 seq 维被截短后，显式用 logits_to_keep=0 要求全序列；仍失败则抛
+        清晰诊断。next_token_logprobs 只取末位 logits，不走本 helper。
+        """
+        seq_len = input_ids.shape[1]
+        with self._torch.no_grad():
+            logits = self._model(input_ids=input_ids).logits
+        if (
+            logits.ndim == 3
+            and logits.shape[0] == input_ids.shape[0]
+            and logits.shape[1] == seq_len
+        ):
+            return logits
+        # 后端只吐了部分位置（多为末位 1 个）→ 显式请求全序列 logits
+        for kw in ("logits_to_keep", "num_logits_to_keep"):
+            try:
+                with self._torch.no_grad():
+                    logits = self._model(input_ids=input_ids, **{kw: 0}).logits
+            except TypeError:
+                continue
+            if (
+                logits.ndim == 3
+                and logits.shape[0] == input_ids.shape[0]
+                and logits.shape[1] == seq_len
+            ):
+                return logits
+        raise RuntimeError(
+            f"{self.name}: forward 返回 logits shape={tuple(logits.shape)}，"
+            f"期望 ({input_ids.shape[0]}, {seq_len}, vocab)，"
+            "该后端疑似只吐末位 logits，codec/mink 无法取中间位置 logp；"
+            "已试 logits_to_keep=0 仍无效，需检查该模型/后端的 forward 语义。"
+        )
+
+    def _forward_logits_tail(self, input_ids, n_keep: int):
+        """取序列末尾 ``n_keep`` 个位置的 logits，避免无谓的 full-vocab 输出。
+
+        Gemma/Llama 在 transformers 5.x 支持 ``logits_to_keep``。排列检测只
+        需要 completion 的预测位置及其前一个 conditioning 位置，因此可以
+        将 logits 序列从整条题面缩短到 ``completion_len + 1``，显著降低长题
+        （如 GPQA-Diamond）的显存峰值。老模型或不兼容后端则回退到完整 forward。
+        """
+        seq_len = int(input_ids.shape[1])
+        n_keep = max(1, min(int(n_keep), seq_len))
+        expected = n_keep
+        for kw in ("logits_to_keep", "num_logits_to_keep"):
+            try:
+                with self._torch.no_grad():
+                    logits = self._model(input_ids=input_ids, **{kw: n_keep}).logits
+            except TypeError:
+                continue
+            if (
+                logits.ndim == 3
+                and logits.shape[0] == input_ids.shape[0]
+                and logits.shape[1] == expected
+            ):
+                return logits
+
+        # Compatibility fallback: compute full logits only when the backend does
+        # not implement either keep parameter.
+        logits = self._forward_logits(input_ids)
+        return logits[:, -expected:, :]
+
     def logprobs(self, prompt: str, completion: str) -> np.ndarray:
         """返回 completion 各 token 的 log p（自然对数）。
 
@@ -155,12 +266,8 @@ class HFLocalModel(ModelInterface):
         completion 的 token 范围。模型在位置 i 输出的 logits 预测的是位置 i+1
         的 token，所以 completion 的 logprob 取 logits[:, prompt_len-1:-1]。
         """
-        prompt_ids = self._tokenizer(prompt, return_tensors="pt", add_special_tokens=True)["input_ids"]
-        full_ids = self._tokenizer(
-            prompt + completion, return_tensors="pt", add_special_tokens=True
-        )["input_ids"]
-        prompt_len = prompt_ids.shape[1]
-        full_len = full_ids.shape[1]
+        prompt_len, full_ids = self._encode_prompt_completion(prompt, completion)
+        full_len = int(full_ids.shape[1])
         if full_len <= prompt_len:
             return np.zeros(0, dtype=np.float64)
 
@@ -173,8 +280,7 @@ class HFLocalModel(ModelInterface):
             full_len = full_ids.shape[1]
 
         full_ids = full_ids.to(self._device)
-        with self._torch.no_grad():
-            logits = self._model(input_ids=full_ids).logits  # (1, full_len, vocab)
+        logits = self._forward_logits(full_ids)  # (1, full_len, vocab)
         log_probs = self._torch.log_softmax(logits.float(), dim=-1)
 
         # 预测位置 i+1 的 token 用位置 i 的 logits；completion token index = [prompt_len, full_len)
@@ -207,12 +313,20 @@ class HFLocalModel(ModelInterface):
             prompt, return_tensors="pt", add_special_tokens=True
         )["input_ids"]
         prompt_len = prompt_ids.shape[1]
+        empty_prompt = prompt_len == 0
+        if empty_prompt:
+            bos = self._conditioning_token_id()
+            prompt_ids = self._torch.tensor([[bos]], dtype=prompt_ids.dtype)
+            prompt_len = 1
 
         cand_token_ids: list[int | None] = []
         for c in candidate_completions:
             full = self._tokenizer(
                 prompt + c, return_tensors="pt", add_special_tokens=True
             )["input_ids"]
+            if empty_prompt and full.shape[1] > 0:
+                bos_ids = self._torch.tensor([[bos]], dtype=full.dtype)
+                full = self._torch.cat((bos_ids, full), dim=1)
             if full.shape[1] == prompt_len + 1:
                 cand_token_ids.append(int(full[0, prompt_len].item()))
             else:
@@ -255,18 +369,27 @@ class HFLocalModel(ModelInterface):
             return np.zeros(0, dtype=np.float64)
 
         prompt_len = len(self._tokenizer(prompt, add_special_tokens=True)["input_ids"])
+        bos_prefix: list[int] = []
+        if prompt_len == 0:
+            bos_prefix = [self._conditioning_token_id()]
+            prompt_len = 1
 
         # 逐条编码（不 padding），记录 token ids 与长度，按长度分桶
         from collections import defaultdict
         ids_per: list[list[int]] = []
         buckets: dict[int, list[int]] = defaultdict(list)
         for i, c in enumerate(completions):
-            ids = self._tokenizer(prompt + c, add_special_tokens=True)["input_ids"]
+            ids = bos_prefix + self._tokenizer(
+                prompt + c, add_special_tokens=True
+            )["input_ids"]
             ids_per.append(ids)
             buckets[len(ids)].append(i)
 
         import os
-        mb = max(1, int(os.environ.get("PERM_SEQ_MICROBATCH", "8")))
+        # GPQA-Diamond has long option blocks and Gemma's 256k vocabulary makes
+        # the float32 log-softmax tensor large even with tail logits.  Keep the
+        # safe default low; smaller-vocab models can override this for throughput.
+        mb = max(1, int(os.environ.get("PERM_SEQ_MICROBATCH", "2")))
 
         out = np.empty(n, dtype=np.float64)
         for full_len, idxs in buckets.items():
@@ -283,14 +406,23 @@ class HFLocalModel(ModelInterface):
                     [ids_per[i] for i in chunk], device=self._device
                 )
                 with self._torch.no_grad():
-                    logits_b = self._model(input_ids=ids_b).logits
-                logp_b = self._torch.log_softmax(logits_b.float(), dim=-1)
-                # completion 占 [prompt_len, full_len)，预测位置 j 用 j-1 的 logits
-                tgt = ids_b[:, prompt_len:full_len].to(logp_b.device)      # (b, cl)
-                pred = logp_b[:, prompt_len - 1 : full_len - 1, :]         # (b, cl, vocab)
-                summed = pred.gather(-1, tgt.unsqueeze(-1)).squeeze(-1).sum(dim=1)
+                    # Need positions [prompt_len-1, full_len-1): keep one extra
+                    # tail position, then drop its final (unused) prediction.
+                    logits_b = self._forward_logits_tail(ids_b, cl + 1)
+                    # 只在 completion 预测位置 [prompt_len-1, full_len-1) 上算 log_softmax：
+                    # 避免在整条序列上实例化 (b, seq_len, vocab) 的 float32 张量（长题面
+                    # benchmark 如 GPQA 的 OOM 主因）。切片后显存 seq_len→cl 数量级下降。
+                    pred_logits = logits_b[:, :-1, :].float()
+                    logp = self._torch.log_softmax(pred_logits, dim=-1)  # (b, cl, vocab)
+                    tgt = ids_b[:, prompt_len:full_len]                  # (b, cl)
+                    summed = logp.gather(-1, tgt.unsqueeze(-1)).squeeze(-1).sum(dim=1)
+                    summed = summed.cpu()
                 for j, i in enumerate(chunk):
                     out[i] = float(summed[j].item())
+                # 显式释放，防长序列 benchmark 逐 chunk 碎片累积撑爆显存
+                del ids_b, logits_b, pred_logits, logp, tgt, summed
+            if self._device.startswith("cuda"):
+                self._torch.cuda.empty_cache()
         return out
 
     # ----------------------------- token-level distribution stats ----------------------------- #
@@ -301,12 +433,8 @@ class HFLocalModel(ModelInterface):
         μ_i = Σ_v p_i(v) log p_i(v) ；σ_i = sqrt(Σ_v p_i(v) (log p_i(v) - μ_i)^2)。
         通过 log_softmax 一次性算，不保留 full vocab tensor 在 host，省内存。
         """
-        prompt_ids = self._tokenizer(prompt, return_tensors="pt", add_special_tokens=True)["input_ids"]
-        full_ids = self._tokenizer(
-            prompt + completion, return_tensors="pt", add_special_tokens=True
-        )["input_ids"]
-        prompt_len = prompt_ids.shape[1]
-        full_len = full_ids.shape[1]
+        prompt_len, full_ids = self._encode_prompt_completion(prompt, completion)
+        full_len = int(full_ids.shape[1])
         if full_len <= prompt_len:
             empty = np.zeros(0, dtype=np.float64)
             return {"chosen_logp": empty, "mu": empty.copy(), "sigma": empty.copy()}
@@ -320,7 +448,7 @@ class HFLocalModel(ModelInterface):
 
         full_ids = full_ids.to(self._device)
         with self._torch.no_grad():
-            logits = self._model(input_ids=full_ids).logits  # (1, full_len, vocab)
+            logits = self._forward_logits(full_ids)  # (1, full_len, vocab)
             # log_p, p 都保留 fp32 防止 bf16 vocab 求和误差
             log_p = self._torch.log_softmax(logits.float(), dim=-1)
             p = log_p.exp()

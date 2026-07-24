@@ -26,7 +26,6 @@ _RATIO_DENOM_EPS: dict[str, float] = {
     "spv_mia": 0.5,
     "mink_plus_plus": 0.1,
     "perm_option": 0.05,
-    "ts_guessing": 0.05,
     "paraphrase": 0.05,
 }
 
@@ -116,9 +115,8 @@ _SIGNAL_DIRECTION: dict[str, str] = {
     "spv_mia": "lower_is_dirtier",      # Δpv 越负越像 member
     "mink_plus_plus": "lower_is_dirtier",  # 单题分数越低越像 member
     "perm_option": "higher_is_dirtier",  # 原位置偏好率越高越可疑
-    "ts_guessing": "higher_is_dirtier",  # 猜中率越高越可疑
-    "self_critique": "higher_is_dirtier",
     "paraphrase": "lower_is_dirtier",
+    "codec": "higher_is_dirtier",
 }
 
 

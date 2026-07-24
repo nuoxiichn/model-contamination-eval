@@ -1,100 +1,83 @@
 # model-contamination-eval
 
-模型级 benchmark 污染检测 pipeline。对同一个模型的 base / SFT / RLHF 三类 checkpoint 跑统一一套检测代码，按训练阶段参数化分支；共用方法两阶段都跑，差值作为污染归因信号。
+模型级 benchmark 污染检测实验仓库。它把同一组 benchmark、模型后端和检测方法组织成可复现的实验，并输出样本级信号、方法级结果和带限制说明的报告。
 
-## 解决什么问题
+## 当前定位
 
-LLM benchmark 越来越不可信：
-- **base 阶段** 可能在预训练时见过测试集
-- **SFT 阶段** 可能混入了 benchmark 风格的指令数据
-- **RLHF 阶段** 可能在 reward 信号引导下记住了答题模式
+本仓库目前是“可复现研究工具 + 受限生产原型”，不是已经闭环的发布门禁服务。当前可运行链路是：
 
-本仓库提供一套统一 pipeline，对每个 benchmark 输出：
+- benchmark 注册表和部分 Hugging Face 数据集 loader；
+- Hugging Face 本地 checkpoint 的生成、log-prob 和 token 分布统计；
+- CoDeC、Min-K%++、Option Permutation、SPV-MIA、数学 CoT Paraphrase Stress 五类方法；
+- 统一 `DetectionResult`、可信度聚合和跨 checkpoint contrastive/diff 工具；
+- 实验配置、结论记录、公开模型 sweep 报告和方法验证登记。
 
-1. **可信度报告**（红/黄/绿裁决）—— 这个 benchmark 在这个 checkpoint 上的分数还能不能信
-2. **阶段归因报告** —— 如果污染了，主要责任在哪个训练阶段
+以下能力目前明确不在生产方法集：Self-Critique（已删除，保留排除结论）、vLLM/远程 API 后端、自动阶段归因、数据配方反馈、绝对红黄绿阈值校准。
 
-## 不解决什么
+## 仓库结构
 
-- 不做数据级检测（n-gram、FM-index、embedding match）—— 另有独立仓库
-- 不反推到单条 SFT 数据 —— 样本级筛选在数据准备阶段做
-- 不输出"数据配方反馈" —— 数据治理团队的职责，不在这里
-- 不替代训练时的污染防御（dropout、weight decay 等）
-
-## 方法学概览
-
-| 阶段 | 主信号 | 备注 |
-| --- | --- | --- |
-| base | 选项排列检测（perm_option）、Min-K%++ 辅助 | MC 位置记忆 + pretrain 泄露信号 |
-| SFT | SPV-MIA（用同源 base 做 reference）、Paraphrase Stress | AUC 显著优于无 reference 的 MIA |
-| SFT + RLHF | Self-Critique、Paraphrase | GRPO 一轮即抹除 SFT 阶段的 MIA 信号，传统方法在此退化 |
-
-
-## 目标 benchmark
-
-对齐记忆张量内部模型评测 P1 注册名单。
-
-**预训练阶段（base checkpoint）**：MMLU-Pro / GPQA-Diamond / MATH / EvalPlus / LiveCodeBench / MGSM / MMMLU
-
-**SFT 阶段 text 类**：IFEval / MMLU-Pro / GPQA-Diamond / AIME 2025 或 MATH-500 / LiveCodeBench / SimpleQA Verified 或 SimpleQA / LiveBench
-
-**暂不纳入**：
-- Action 类 benchmark —— 方法学调研未覆盖，留待后续版本
-- 不在 P1 名单内的 benchmark（MMLU / GSM8K / HumanEval 等） —— `configs/benchmarks.yaml` 保留为实验/对照参考，不进可信度报告主表
-
-`configs/benchmarks.yaml` 中的 `control` tier（MMLU-CF / GSM1k / LBPP 等）作为其他方法（如 ΔMIA）的干净对照集保留，本身不进可信度报告主表。
-
-## 使用前提
-
-| 项 | 必需 | 缺失后果 |
-| --- | --- | --- |
-| 同源 base + SFT 双 checkpoint | 是 | SPV-MIA 与所有差分信号不可用，阶段归因失效 |
-| 模型暴露 logprobs | 是 | Min-K%++ / SPV-MIA 全部不可用 |
-| 干净对照集（MMLU-CF / GSM1k / LBPP 等）至少一半可获取 | 否 | ΔMIA 等方法缺干净 baseline，退化为单值信号 |
-| 已知污染的 positive control 模型 | 用于阈值标定 | 当前缺失，红/黄/绿降级为**相对排名** |
-
-第三方黑盒模型只能跑 Paraphrase，CLI 会自动跳过白盒方法并在报告中标注"白盒方法不可用"。
-
-## 当前阶段
-
-| Phase | 内容 | 状态 |
-| --- | --- | --- |
-| 1 | benchmark 注册表 + 可信度报告（ranked list 形式） | 🔵 进行中 |
-| 2 | SPV-MIA + Paraphrase Stress Test + 阶段归因报告 | ⚪ 待开始 |
-| 3 | Self-Critique + 阶段归因报告精细化 | ⚪ 待开始 |
-| 4 | 对照集季度更新 + 历史归因结果库 | ⚪ 持续 |
-
-未实现的方法在代码中是 `NotImplementedError` 占位，不会悄悄返回 0 或假数据。
+```text
+configs/       benchmark 注册表、pipeline 参数、可复制的运行示例
+docs/          使用契约、方法验证、公开模型报告和少量历史归档
+experiments/   可复现实验脚本与 notes.md；大输出不入 git
+schemas/       运行配置、结果和 manifest 的机器可读契约
+src/           Python 包 model_contamination
+scripts/       数据下载和实验辅助脚本
+tests/         单元测试（不需要下载模型）
+outputs/       本地运行产物（git ignored，仅保留目录占位）
+```
 
 ## 快速开始
 
 ```bash
-# 安装
-uv sync --extra hf --extra dev
+# 推荐 Python 3.10+；开发依赖
+python -m pip install -e '.[dev]'
 
-# 国内镜像（避免 HuggingFace 下载慢）
-export HF_ENDPOINT=https://hf-mirror.com
+# 查看注册表与方法过滤
+PYTHONPATH=src python -m model_contamination.cli list-benchmarks
+PYTHONPATH=src python -m model_contamination.cli list-benchmarks --method codec
 
-# 下载 benchmark
-uv run python scripts/download_benchmarks.py \
-    --benchmarks mmlu gsm8k mmlu-cf gsm1k livebench
+# 校验 benchmark 配置
+PYTHONPATH=src python -m model_contamination.cli validate-config
 
-# 单 benchmark 跑全方法
-uv run python -m model_contamination.cli detect \
-    --model /path/to/checkpoint \
-    --stage sft \
-    --benchmark mmlu
+# 运行测试
+PYTHONPATH=src python -m pytest -q
 ```
 
-## 重要限制（用之前请读）
+`mcd detect` 目前仍是未接通的编排入口，会显式报错；真正的实验请参照 [实验目录约定](experiments/README.md) 和 [输入输出契约](docs/guide/input_output_contract.md)，直接调用方法函数或现有实验脚本。这样不会把一个 TODO 命令误当成可靠的生产链路。
 
-- **正在标定阶段**：positive control 尚未到位，可信度报告**只输出 ranked list**，不出绝对红/黄/绿。绝对裁决在阈值标定完成后启用。
-- **单 benchmark 单方法的 MIA AUC 不能当"证明污染"的唯一证据**——立场参考 [SaTML 2025 论文](https://arxiv.org/abs/2506.17871)。
-- **没有 pre-SFT checkpoint 时不出阶段归因**，CLI 会显式标 `归因不可用`，不要硬猜。
+## 方法状态摘要
 
-## 参考
+| 方法 | 需要的模型能力 | 当前输入 | 当前证据 | 主要限制 |
+|---|---|---|---|---|
+| CoDeC | log-probs | 至少 2 条同一 benchmark 样本 | 剂量、特异性、跨模型实验较完整 | 同质 context/多主题 benchmark 会改变解释；阈值尚未本仓库校准 |
+| Min-K%++ | token-level 全词表统计 | 任意可 token 化文本；有 control 才能算 AUC | 论文复现、剂量和特异性 | 无 control 只能给位置统计，不能叫 AUC |
+| Option Permutation | log-probs | ≥3 选项的多选题 | 剂量响应和 FP 分解 | MMLU-Pro 等题目可能信号饱和；绝对 FPR 高 |
+| SPV-MIA | target/reference log-probs | 有同源 base 的 SFT、足够长的 completion | 数学 CoT/per-sample 侧有证据 | MC 单字母和短答案结构性失效；无 control 仅 mean-only |
+| Paraphrase Stress | log-probs | 当前只支持 `math_cot` | 数学 CoT 有限剂量响应 | 规则改写，不支持当前配置里的所有格式；不是黑盒 API 方法 |
 
-- SPV-MIA: [arXiv:2311.06062](https://arxiv.org/abs/2311.06062)
-- Fragility of LRM Detection（RL 抹除 MIA 信号）: [arXiv:2510.02386](https://arxiv.org/abs/2510.02386)
-- Impact of Post-training on Contamination: [arXiv:2601.06103](https://arxiv.org/abs/2601.06103)
-- ConStat: [arXiv:2405.16281](https://arxiv.org/abs/2405.16281)
+详细的适用格式、方向、证据等级和失败条件见 [方法说明](docs/guide/methods.md) 与 [验证登记](docs/validation/method_validation.md)。
+
+## 结果如何解读
+
+每个方法返回统一的 `DetectionResult`：`signal`、`verdict_hint`、`prerequisites_met`、`evidence` 和 `error`。`signal` 不是跨方法通用的污染概率：
+
+- 有 positive control、同源 reference 或同分布 control 时，才可使用 AUC、对比差值或校准阈值；
+- 没有这些前置条件时，结果只能作为相对排序或 mean-only 诊断；
+- 单个 benchmark 的单个方法不能证明“模型训练过该数据集”；
+- 报告必须同时展示样本数、失败数、方法参数、模型和 checkpoint 身份。
+
+当前可信度聚合默认是 ranked-list 语义，不能把 `dirty/suspect` 当成发布阻断结论。见 [置信度与效力](docs/guide/confidence_and_effectiveness.md)。
+
+## 外部 API 模型
+
+GPT、Claude、Kimi、DeepSeek 等 API 不是当前基线的必需项：本仓库的主方法依赖 log-prob 或全词表统计，远程 API 通常无法提供这些能力，且当前没有稳定的 API backend。只有在需要验证“黑盒迁移性”时，才建议新增单独的生成式 adapter 和预注册样本预算；不得把 API 结果与本地白盒结果直接混排。
+
+API 实验应记录真实的 input/output token、模型版本、请求失败和价格快照。成本按 `input_tokens × input_price + output_tokens × output_price` 计算，不能只记录调用次数。具体决策建议见 [性能与规模](docs/guide/performance.md)。
+
+## 参考报告
+
+- [公开模型 baseline sweep](docs/reports/public_model_baseline.md)
+- [方法验证登记](docs/validation/method_validation.md)
+- [排除的方法：Self-Critique](docs/validation/excluded_methods.md)
+- [文档总索引](docs/README.md)

@@ -62,6 +62,7 @@ def codec_detect(
     suspect_threshold: float = 0.60,
     min_samples: int = 100,
     seed: int = 42,
+    keep_deltas: bool = False,
 ) -> DetectionResult:
     """对给定 benchmark 跑 CoDeC。
 
@@ -69,6 +70,9 @@ def codec_detect(
     n_seeds:   随机 context 有方差，对 n_seeds 个 seed 的 Δ 取平均（论文默认 5）。
     skip_first_tokens: 忽略 x 前若干 token，消除 text 切换的边界效应（论文默认 10）。
     min_samples: 论文称 100 样本即稳定；低于此仍跑但在 evidence 标注低置信。
+    keep_deltas: True 时把每样本平均 Δ 存进 evidence["deltas"]（list[float]）。
+        供下游对 frac_negative 做 bootstrap CI——不加任何前向，直接复用已算的 Δ。
+        默认 False，避免污染常规 DetectionResult。
 
     每样本需要 (1 + n_seeds) 次 logprobs 前向；数据集分数是 Δ<0 的比例。
     """
@@ -121,7 +125,9 @@ def codec_detect(
             method="codec", stage=stage, benchmark=benchmark.name,
             signal=None, verdict_hint=Verdict.INCONCLUSIVE,
             prerequisites_met=False,
-            error="All samples too short after skip_first_tokens; no CoDeC score.",
+            error="No valid CoDeC delta: all samples too short after "
+                  "skip_first_tokens, or model returned non-finite logprobs "
+                  "(e.g. NaN after unstable finetune).",
         )
 
     deltas_arr = np.asarray(deltas, dtype=np.float64)
@@ -134,21 +140,26 @@ def codec_detect(
     else:
         verdict = Verdict.CLEAN
 
+    evidence = {
+        "n_samples": len(deltas),
+        "n_skipped": n_skipped,
+        "n_context": n_context,
+        "n_seeds": n_seeds,
+        "skip_first_tokens": skip_first_tokens,
+        "mean_delta": float(deltas_arr.mean()),
+        "frac_negative": frac_negative,
+        "low_confidence": len(deltas) < min_samples,
+        # positive control 未到位：阈值来自论文经验值，非本仓库 calibration
+        "threshold_source": "paper_A.5_uncalibrated",
+    }
+    if keep_deltas:
+        # 每样本平均 Δ，供下游 bootstrap frac_negative 的置信区间
+        evidence["deltas"] = deltas_arr.tolist()
+
     return DetectionResult(
         method="codec", stage=stage, benchmark=benchmark.name,
         signal=frac_negative, verdict_hint=verdict, prerequisites_met=True,
-        evidence={
-            "n_samples": len(deltas),
-            "n_skipped": n_skipped,
-            "n_context": n_context,
-            "n_seeds": n_seeds,
-            "skip_first_tokens": skip_first_tokens,
-            "mean_delta": float(deltas_arr.mean()),
-            "frac_negative": frac_negative,
-            "low_confidence": len(deltas) < min_samples,
-            # positive control 未到位：阈值来自论文经验值，非本仓库 calibration
-            "threshold_source": "paper_A.5_uncalibrated",
-        },
+        evidence=evidence,
     )
 
 
@@ -184,4 +195,10 @@ def _avg_logp(
     lp = model.logprobs(prompt=prompt, completion=completion)
     if lp.shape[0] <= skip:
         return None
-    return float(np.mean(lp[skip:]))
+    val = float(np.mean(lp[skip:]))
+    # NaN/inf 防护：某些模型（如 OPT bf16 finetune 后）前向可能出 NaN。
+    # 不加这层，NaN Δ 会让 frac_negative = mean(NaN<0) 静默算成 0.0 → 假 CLEAN，
+    # 违反红线「禁止悄悄回退到不可信结果」。视作无效样本，交由主循环计入 n_skipped。
+    if not np.isfinite(val):
+        return None
+    return val

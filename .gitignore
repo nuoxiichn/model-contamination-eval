@@ -25,6 +25,7 @@ wheels/
 venv/
 .env
 .envrc
+# 现有本地 uv.lock 基于 Python >=3.11，未纳入当前 Python 3.10+ 契约。
 uv.lock
 
 # Testing / linting
@@ -37,13 +38,16 @@ htmlcov/
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 .DS_Store
 CLAUDE.md
 
 # 项目专属：不进 git 的大文件 / 中间结果
-outputs/
+outputs/*
+!outputs/
+!outputs/.gitkeep
 logprobs_cache/
 model_cache/
 *.safetensors
@@ -59,9 +63,11 @@ hf_cache/
 
 # 实验输出（experiments/ 目录只跟踪配置与结论 notes.md）
 experiments/*/outputs/
+experiments/*/outputs_*/
 experiments/*/logs/
 experiments/*/*.parquet
 experiments/*/*.jsonl
+experiments/*/questions_cache/
 
 # 日志
 *.log
@@ -71,3 +77,6 @@ logs/
 *.tmp
 *.bak
 scratch/
+
+# paraphrase / logprobs 等中间产物缓存（可再生）
+cache/

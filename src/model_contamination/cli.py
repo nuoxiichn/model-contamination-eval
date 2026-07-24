@@ -3,7 +3,7 @@
 用法：
     mcd list-benchmarks
     mcd validate-config
-    mcd detect --model PATH --stage sft --benchmark mmlu-pro
+    mcd detect --model PATH --stage sft --benchmark mmlu-pro  # 尚未接通统一 runner
 """
 
 from __future__ import annotations
@@ -72,7 +72,10 @@ def detect(
     reference: str | None,
 ) -> None:
     """跑单 benchmark 单 checkpoint 的检测。"""
-    raise click.ClickException("Phase 1/2 TODO: 串起 stage 分支 + 方法注册 + 报告输出")
+    raise click.ClickException(
+        "统一 runner 尚未接通；请参照 docs/guide/input_output_contract.md，"
+        "使用 experiments/ 中的脚本或直接调用方法函数。"
+    )
 
 
 if __name__ == "__main__":

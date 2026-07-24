@@ -27,7 +27,6 @@ from model_contamination.stage_sft.spv_mia import (
 )
 from model_contamination.types import BenchmarkQuestion, BenchmarkSpec, Verdict
 
-
 # ----------------------------- helpers ----------------------------- #
 
 
@@ -145,8 +144,6 @@ def test_too_few_samples():
 
 
 def test_unimplemented_paraphraser():
-    target = _HashLogprobsModel("t", "sft")
-    ref = _HashLogprobsModel("r", "base")
     with pytest.raises(NotImplementedError):
         # paraphraser 是 Literal，但运行时不会拦；只在调用 _paraphrase 时抛
         # 直接走 _paraphrase 验证
@@ -237,12 +234,12 @@ def test_mc_single_letter_answers_degrade_to_inconclusive():
     assert r.evidence.get("n_target") == 0
 
 
-# ----------------------------- math_cot: raw['full_answer'] 走 SFT 训过的 CoT ----------------------------- #
+# ----------------------------- math_cot: q.full_answer 走 SFT 训过的 CoT ----------------------------- #
 
 
-def test_math_cot_uses_full_answer_from_raw():
-    """GSM8K 类 math_cot：归一化 loader 把 answer 提成最终数字 "3"，完整 CoT 在
-    raw['full_answer']。SFT 训的是 CoT+answer 全文，SPV-MIA 必须用 full_answer
+def test_math_cot_uses_full_answer_field():
+    """GSM8K 类 math_cot：归一化 loader 把 answer 提成最终数字 "3"，完整 CoT 提到
+    顶层 q.full_answer。SFT 训的是 CoT+answer 全文，SPV-MIA 必须用 full_answer
     才能在 paraphrase 时撼动 token 序列产生有意义的 Δpv。
     """
     full = "First we compute 2/2=1. So total = 2+1=3 bolts of fabric. #### 3"
@@ -250,7 +247,7 @@ def test_math_cot_uses_full_answer_from_raw():
         BenchmarkQuestion(
             id=f"g-{i}", benchmark="gsm8k", format="math_cot",
             prompt=f"Trivial problem {i}?", answer="3",  # 1 词
-            raw={"full_answer": full},
+            full_answer=full,
         )
         for i in range(40)
     ]
@@ -268,14 +265,14 @@ def test_math_cot_uses_full_answer_from_raw():
     assert r.evidence["target_mean_delta_pv"] < -1.0
 
 
-def test_math_cot_falls_back_to_answer_when_raw_missing():
-    """raw 不含 full_answer 时回退到 q.answer，保留兼容路径。"""
+def test_math_cot_falls_back_to_answer_when_full_answer_missing():
+    """full_answer 为 None（该题型无 CoT）时回退到 q.answer，保留兼容路径。"""
     questions = [
         BenchmarkQuestion(
             id=f"g-{i}", benchmark="gsm8k", format="math_cot",
             prompt=f"Q{i}?",
             answer=f"the long form answer number {i} indeed",  # >= 4 词，可 paraphrase
-            raw={},
+            full_answer=None,
         )
         for i in range(40)
     ]

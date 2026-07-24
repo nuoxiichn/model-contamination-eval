@@ -29,7 +29,6 @@ from model_contamination.shared.paraphrase_stress import (
 )
 from model_contamination.types import BenchmarkQuestion, BenchmarkSpec, Verdict
 
-
 # ----------------------------- helpers ----------------------------- #
 
 
@@ -153,10 +152,7 @@ class _MemorizedPromptModel(ModelInterface):
     def _prompt_seen(self, prompt: str) -> bool:
         # 精确匹配（prompt 里嵌了 evaluator 加的 "A. ..." 行）——比较去掉 MC body 部分
         # 简化：只要 prompt 里包含任一 known prompt 的核心串，就算见过
-        for kp in self._known:
-            if kp in prompt:
-                return True
-        return False
+        return any(kp in prompt for kp in self._known)
 
     def generate(self, prompt: str, max_tokens: int = 256, temperature: float = 0.0) -> str:
         if self._prompt_seen(prompt):

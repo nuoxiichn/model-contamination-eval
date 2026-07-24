@@ -172,7 +172,9 @@ def _math_answers_equal(pred: str, gold: str) -> bool:
     # 数值比较（兼容 3 vs 3.0 / 1/2 vs 0.5）
     try:
         return abs(_as_float(p) - _as_float(g)) < 1e-6
-    except ValueError:
+    except (ValueError, ZeroDivisionError):
+        # ZeroDivisionError: 模型生成里出现 "x/0" 形式的伪分数（extract 抽到），
+        # float(a)/float(b) 触发；不是 ValueError，需显式捕获否则整个评测 cell 崩。
         return False
 
 

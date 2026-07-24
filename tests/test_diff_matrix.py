@@ -6,8 +6,6 @@ clean ckpt baseline。
 
 from __future__ import annotations
 
-import math
-
 import pytest
 
 from model_contamination.attribution.diff_matrix import (
@@ -26,7 +24,7 @@ def _dr(method: str, benchmark: str, signal: float | None) -> DetectionResult:
         benchmark=benchmark,
         signal=signal,
         verdict_hint=Verdict.INCONCLUSIVE,
-        prerequisites_met=True if signal is not None else False,
+        prerequisites_met=signal is not None,
     )
 
 

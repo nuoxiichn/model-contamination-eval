@@ -1,0 +1,128 @@
+# 市面模型污染检测 sweep：Qwen2.5-7B / OLMo-2-7B（各 base + instruct）
+#
+# 目的：假设四个方法（codec / mink_plus_plus / paraphrase / spv_mia）已验证有效，
+#       直接对市面常见开源模型跑一轮生产检测，输出跨模型 ranked list。
+#       无 positive control → 只出相对排名 + 各方法原始信号（对齐 CLAUDE.md 红线）。
+#
+# 跑法（8 卡 MetaX，走 hf-mirror）：
+#   HF_ENDPOINT=https://hf-mirror.com \
+#   HF_HOME=/mnt/public/code/chennuoxi/hf_cache \
+#   PYTHONPATH=src /opt/conda/bin/python \
+#     experiments/2026-07-08_market_model_sweep/run_sweep.py
+#
+# 结果写本目录 outputs/sweep_results.jsonl（不进 git），可断点续跑（已完成的 key 跳过）。
+
+# ---------------------------------------------------------------------------
+# 模型：每个家族 base + instruct 配对（SPV-MIA 要 base 当 reference）。
+# stage_tag 只是标签；evaluator 按 tokenizer 有无 chat template 自动切模板，
+# instruct 会自动走 chat 分支，base 走硬模板。
+# ---------------------------------------------------------------------------
+models:
+  - name: qwen2.5-7b
+    path: Qwen/Qwen2.5-7B                 # HF hub 缓存已存在
+    stage_tag: base
+    dtype: bfloat16
+    device: cuda:0
+  - name: qwen2.5-7b-instruct
+    path: Qwen/Qwen2.5-7B-Instruct        # download_models.sh 下载
+    stage_tag: sft
+    dtype: bfloat16
+    device: cuda:0
+    spv_reference: qwen2.5-7b             # SPV 用的同源 base
+  - name: olmo-2-7b
+    path: /mnt/public/code/chennuoxi/hf_cache/models/C1_olmo-2-7b  # 本地缓存
+    stage_tag: base
+    dtype: bfloat16
+    device: cuda:0
+  - name: olmo-2-7b-instruct
+    path: allenai/OLMo-2-1124-7B-Instruct # download_models.sh 下载
+    stage_tag: sft
+    dtype: bfloat16
+    device: cuda:0
+    spv_reference: olmo-2-7b
+
+  # ===== 周末扩测：主流 gated trio（需 HF_TOKEN + 已接受 license）=====
+  - {name: llama-3.1-8b,          path: meta-llama/Llama-3.1-8B,            stage_tag: base, dtype: bfloat16, device: cuda:0}
+  - {name: llama-3.1-8b-instruct, path: meta-llama/Llama-3.1-8B-Instruct,   stage_tag: sft,  dtype: bfloat16, device: cuda:0, spv_reference: llama-3.1-8b}
+  - {name: mistral-7b-v0.3,       path: mistralai/Mistral-7B-v0.3,          stage_tag: base, dtype: bfloat16, device: cuda:0}
+  - {name: mistral-7b-instruct,   path: mistralai/Mistral-7B-Instruct-v0.3, stage_tag: sft,  dtype: bfloat16, device: cuda:0, spv_reference: mistral-7b-v0.3}
+  - {name: gemma-2-9b,            path: google/gemma-2-9b,                  stage_tag: base, dtype: bfloat16, device: cuda:0}
+  - {name: gemma-2-9b-it,         path: google/gemma-2-9b-it,               stage_tag: sft,  dtype: bfloat16, device: cuda:0, spv_reference: gemma-2-9b}
+
+  # ===== 周末扩测：免 gate 替代 trio（无 token，无人值守稳）=====
+  - {name: deepseek-7b,           path: deepseek-ai/deepseek-llm-7b-base,   stage_tag: base, dtype: bfloat16, device: cuda:0}
+  - {name: deepseek-7b-chat,      path: deepseek-ai/deepseek-llm-7b-chat,   stage_tag: sft,  dtype: bfloat16, device: cuda:0, spv_reference: deepseek-7b}
+  - {name: yi-1.5-9b,             path: 01-ai/Yi-1.5-9B,                    stage_tag: base, dtype: bfloat16, device: cuda:0}
+  - {name: yi-1.5-9b-chat,        path: 01-ai/Yi-1.5-9B-Chat,               stage_tag: sft,  dtype: bfloat16, device: cuda:0, spv_reference: yi-1.5-9b}
+  # internlm2.5 原本在此：transformers 5.6.0 撞其老 remote code（DynamicCache.from_legacy_cache
+  # 缺失 + tuple 相加），全格 error。换 Qwen2-7B（原生 arch、免 gate、免 trust_remote_code、
+  # 稳定加载）顶替，顺带得 Qwen2 vs Qwen2.5 的同厂代际污染漂移对照。
+  - {name: qwen2-7b,              path: Qwen/Qwen2-7B,                      stage_tag: base, dtype: bfloat16, device: cuda:0}
+  - {name: qwen2-7b-instruct,     path: Qwen/Qwen2-7B-Instruct,             stage_tag: sft,  dtype: bfloat16, device: cuda:0, spv_reference: qwen2-7b}
+
+# SPV 需要同时加载 target + reference 两个 7B；reference 放到另一张卡避免 OOM。
+spv_reference_device: cuda:1
+
+# ---------------------------------------------------------------------------
+# 检测 benchmark（target）+ 干净对照锚（control）
+#   - gsm8k  → control gsm1k   （clean mirror，本地 jsonl，离线可用）
+#   - mmlu-pro → control mmlu-cf（contamination-free MC 镜像）
+#   - math-500 / evalplus 无可加载的干净镜像 → mink/spv 走 mean_only 弱信号
+# ---------------------------------------------------------------------------
+benchmarks:
+  targets: [gsm8k, math-500, math, mmlu-pro, mmlu, gsm-plus, mgsm, evalplus]
+  control_map:
+    gsm8k: gsm1k
+    mmlu-pro: mmlu-cf
+    mmlu: mmlu-cf           # 经典 MMLU（污染）对干净 MMLU-CF 镜像出 AUC
+    # math / gsm-plus / mgsm / math-500 / evalplus: 无 control → mink/spv 走 mean_only 弱信号
+    # 语义分层：gsm8k/math/mmlu-pro/mmlu 疑似污染（dirty 侧）；gsm-plus/mgsm/mmlu-cf/gsm1k 干净侧
+  # split 覆盖：默认 test；MMLU-CF 的 test 私有留出（防污染），只放 val/dev
+  splits:
+    mmlu-cf: val
+    gpqa: train          # GPQA 官方只有 train split（gated，需 HF_TOKEN）
+    gpqa-diamond: train
+  n_eval: 200          # 每 benchmark 取题数（论文 100 即稳，200 更稳）
+  n_control: 200
+
+# ---------------------------------------------------------------------------
+# 方法 × 模型 × benchmark 适用矩阵。models: all=全部4个 / instruct=仅instruct target
+# 新增 bench（2026-07-18）：math(污染,已缓存零代码) / mmlu(污染MC) / gsm-plus+mgsm(干净数学)
+# ---------------------------------------------------------------------------
+tasks:
+  codec:
+    models: all
+    benchmarks: [gsm8k, math-500, math, mmlu-pro, mmlu, gsm-plus, mgsm, evalplus]
+    kwargs: {n_context: 1, n_seeds: 5, skip_first_tokens: 10}
+  mink_plus_plus:
+    models: all
+    # math=跨阶段锚点；mmlu 有 mmlu-cf control 出 AUC。gsm-plus/mgsm 无 control 故不挂（避免弱噪声）
+    benchmarks: [gsm8k, math-500, math, mmlu-pro, mmlu, evalplus]
+    kwargs: {k_ratio: 0.2}
+  paraphrase:
+    models: all
+    benchmarks: [gsm8k, math-500, math, gsm-plus, mgsm]  # 仅数学 CoT；MC/代码已知失效，跳过
+    kwargs: {n_paraphrases: 5, paraphraser: rule}
+  perm_option:
+    models: all                          # MC 污染主方法（周末新加，已验证）
+    # mmlu-pro（10 选项→120 排列）信号饱和不可用（见 notes 2026-07-13），保留仅作对照锚。
+    # 2026-07-13 加 gpqa/gpqa-diamond/mmmlu、2026-07-18 加 mmlu：均 4 选项→24 排列全枚举，落有效区间。
+    benchmarks: [mmlu-pro, mmlu-cf, mmlu, gpqa, gpqa-diamond, mmmlu]
+    kwargs: {max_permutations: 120, min_samples: 50}
+  spv_mia:
+    models: instruct                     # 只有 instruct target 有意义（base==reference 无信号）
+    # mmlu-pro 去掉：MC 单字母 completion < 4 词，SPV paraphrase 扰动无意义 →
+    # 全 NaN（v1 已知结构性失效，见 spv_mia.py docstring）。挂它只是白加载一轮双模型。
+    benchmarks: [gsm8k, math-500, math, gsm-plus, evalplus]
+    kwargs: {n_neighbors: 10, mask_ratio: 0.20}
+
+# ---------------------------------------------------------------------------
+# 复用既有数据：OLMo-2-7B base × CoDeC 已在 2026-07-06_codec_crossmodel_spillover
+# 跑过（gsm8k 0.66 / math-500 0.505 / mmlu-pro 0.407 / evalplus 0.226）。
+# runner 跳过这些 key 并在结果里写一条 reuse 指针，不重跑。
+# ---------------------------------------------------------------------------
+reuse:
+  - {model: olmo-2-7b, method: codec, benchmark: gsm8k, signal: 0.66, source: 2026-07-06_codec_crossmodel_spillover}
+  - {model: olmo-2-7b, method: codec, benchmark: math-500, signal: 0.505, source: 2026-07-06_codec_crossmodel_spillover}
+  - {model: olmo-2-7b, method: codec, benchmark: mmlu-pro, signal: 0.407, source: 2026-07-06_codec_crossmodel_spillover}
+  - {model: olmo-2-7b, method: codec, benchmark: evalplus, signal: 0.226, source: 2026-07-06_codec_crossmodel_spillover}

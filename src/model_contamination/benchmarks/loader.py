@@ -286,6 +286,60 @@ def _normalize_gpqa(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> Bench
     )
 
 
+def _normalize_mmlu(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> BenchmarkQuestion:
+    """cais/mmlu（'all' config，需 data_subset=all）: question + choices(list[4]) +
+    answer(int 0-3)。经典 4 选项 MC，落 perm_option 有效区间（24 排列全枚举）。
+    已知广泛污染，作 dirty MC 参照。"""
+    choices = list(row["choices"])
+    ans_idx = int(row["answer"])
+    return BenchmarkQuestion(
+        id=f"mmlu-{idx}",
+        benchmark=spec.name,
+        format="multiple_choice",
+        prompt=row["question"],
+        choices=choices,
+        answer=_LETTERS[ans_idx],
+        answer_index=ans_idx,
+        raw={"subject": row.get("subject")},
+    )
+
+
+def _normalize_gsm_plus(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> BenchmarkQuestion:
+    """qintongli/GSM-Plus: question + answer（GSM8K 同族扰动版）。
+
+    GSM-Plus 的 answer 常是含 '#### 数值' 的 CoT，也可能直接是数值；两种都兼容。
+    作 math 的干净同族对照。"""
+    raw_answer = str(row.get("answer", ""))
+    m = re.search(r"####\s*([\-0-9./,]+)", raw_answer)
+    final = m.group(1).replace(",", "").strip() if m else raw_answer.strip()
+    return BenchmarkQuestion(
+        id=f"gsmplus-{idx}",
+        benchmark=spec.name,
+        format="math_cot",
+        prompt=row["question"],
+        answer=final,
+        full_answer=raw_answer,
+        raw={"perturbation_type": row.get("perturbation_type")},
+    )
+
+
+def _normalize_mgsm(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> BenchmarkQuestion:
+    """juletxara/mgsm（需 data_subset=语言码，默认 en）: question + answer(CoT 文本，
+    可能为 None) + answer_number(int)。多语言数学，天然抗污染，作 math 干净对照。"""
+    raw_answer = row.get("answer")
+    ans_num = row.get("answer_number")
+    final = str(ans_num).strip() if ans_num is not None else str(raw_answer or "").strip()
+    return BenchmarkQuestion(
+        id=f"mgsm-{idx}",
+        benchmark=spec.name,
+        format="math_cot",
+        prompt=row["question"],
+        answer=final,
+        full_answer=str(raw_answer or ""),
+        raw={"lang": spec.data_subset},
+    )
+
+
 def _normalize_ceval(row: dict[str, Any], idx: int, spec: BenchmarkSpec) -> BenchmarkQuestion:
     """ceval/ceval-exam: question + A/B/C/D + answer（字母）。
 
@@ -319,6 +373,9 @@ _NORMALIZERS: dict[str, Normalizer] = {
     "gpqa": _normalize_gpqa,
     "gpqa-diamond": _normalize_gpqa,
     "evalplus": _normalize_evalplus,
+    "mmlu": _normalize_mmlu,
+    "gsm-plus": _normalize_gsm_plus,
+    "mgsm": _normalize_mgsm,
     "c-eval": _normalize_ceval,
 }
 
