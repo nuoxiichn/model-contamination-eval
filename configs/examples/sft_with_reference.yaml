@@ -1,0 +1,41 @@
+# 本地 SFT checkpoint + 同源 base reference，用于 SPV-MIA 对比。
+schema_version: "1.0"
+run:
+  id: "local-sft-reference"
+  seed: 42
+  output_dir: "./outputs/runs/local-sft-reference"
+  fail_fast: false
+model:
+  backend: hf_local
+  path: "${TARGET_CHECKPOINT}"
+  stage: sft
+  dtype: bfloat16
+  device_map: auto
+  trust_remote_code: false
+  reference:
+    backend: hf_local
+    path: "${BASE_CHECKPOINT}"
+    stage: base
+    dtype: bfloat16
+    device_map: auto
+    trust_remote_code: false
+benchmarks:
+  - name: math
+    split: test
+    max_samples: 100
+    selection: random
+    control:
+      name: math-500
+      split: test
+      max_samples: 100
+      selection: random
+methods:
+  - name: codec
+    params:
+      n_seeds: 3
+      min_samples: 100
+  - name: spv_mia
+    params:
+      n_neighbors: 10
+      mask_ratio: 0.2
+      min_samples: 30

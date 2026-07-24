@@ -1,6 +1,6 @@
 # Schema
 
-Schema 是运行产物的稳定边界，供未来统一 runner、报告脚本和 CI 校验。当前实验脚本尚未全部写出 `run_manifest.json`，但新增实验应尽量遵循这些字段。
+Schema 是 `mcd run`、报告脚本和 CI 之间的稳定边界。统一 runner 会写出与这些契约对应的配置快照、逐任务结果和 manifest；独立研究脚本如需进入正式报告，也应转换为相同字段。
 
 - `run_config.schema.json`：模型、benchmark、方法和资源输入；
 - `detection_result.schema.json`：与 `DetectionResult` 对齐的单条结果；

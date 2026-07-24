@@ -1,10 +1,11 @@
-# 本地 HF checkpoint 的最小运行契约。
-# 当前仓库尚未接通统一 runner；实验脚本可读取并扩展此文件。
+# 本地 Transformers/Hugging Face 格式 checkpoint 的最小运行配置。
+# 模型只需在本机可由 from_pretrained 读取，无需上传到 Hub。
 schema_version: "1.0"
 run:
   id: "local-smoke"
   seed: 42
   output_dir: "./outputs/runs/local-smoke"
+  fail_fast: false
 model:
   backend: hf_local
   path: "${MODEL_CHECKPOINT}"
@@ -16,6 +17,7 @@ benchmarks:
   - name: gsm8k
     split: test
     max_samples: 50
+    selection: random
 methods:
   - name: codec
     params:

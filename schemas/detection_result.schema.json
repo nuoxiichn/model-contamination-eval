@@ -3,7 +3,7 @@
   "$id": "https://example.invalid/model-contamination-eval/detection-result.schema.json",
   "title": "DetectionResult",
   "type": "object",
-  "required": ["method", "stage", "benchmark", "signal", "verdict_hint", "prerequisites_met", "evidence"],
+  "required": ["method", "stage", "benchmark", "signal", "verdict_hint", "prerequisites_met", "evidence", "error"],
   "properties": {
     "method": {"type": "string"},
     "stage": {"type": "string", "enum": ["base", "sft", "rlhf"]},

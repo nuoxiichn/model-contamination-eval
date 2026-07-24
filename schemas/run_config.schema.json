@@ -3,31 +3,240 @@
   "$id": "https://example.invalid/model-contamination-eval/run-config.schema.json",
   "title": "Model contamination evaluation run config",
   "type": "object",
-  "required": ["schema_version", "run", "model", "benchmarks", "methods"],
+  "required": ["run", "model", "benchmarks", "methods"],
   "properties": {
-    "schema_version": {"type": "string"},
+    "schema_version": {"const": "1.0", "default": "1.0"},
+    "benchmark_registry": {"type": ["string", "null"]},
+    "run": {"$ref": "#/$defs/run"},
+    "model": {"$ref": "#/$defs/targetModel"},
+    "benchmarks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/benchmark"}
+    },
+    "methods": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {"$ref": "#/$defs/codecMethod"},
+          {"$ref": "#/$defs/minKMethod"},
+          {"$ref": "#/$defs/permutationMethod"},
+          {"$ref": "#/$defs/spvMethod"},
+          {"$ref": "#/$defs/paraphraseMethod"}
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
     "run": {
       "type": "object",
-      "required": ["id", "seed", "output_dir"],
+      "required": ["id", "output_dir"],
       "properties": {
-        "id": {"type": "string", "minLength": 1},
-        "seed": {"type": "integer"},
-        "output_dir": {"type": "string"}
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "seed": {"type": "integer", "default": 42},
+        "output_dir": {"type": "string"},
+        "fail_fast": {"type": "boolean", "default": false}
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
-    "model": {
+    "modelLoad": {
       "type": "object",
-      "required": ["backend", "path", "stage"],
+      "required": ["path"],
       "properties": {
-        "backend": {"type": "string", "enum": ["hf_local"]},
-        "path": {"type": "string"},
-        "stage": {"type": "string", "enum": ["base", "sft", "rlhf"]}
+        "backend": {"const": "hf_local", "default": "hf_local"},
+        "path": {"type": "string", "minLength": 1},
+        "stage": {
+          "type": "string",
+          "enum": ["base", "sft", "rlhf"],
+          "default": "base"
+        },
+        "name": {"type": ["string", "null"]},
+        "tokenizer_path": {"type": ["string", "null"]},
+        "device": {"type": ["string", "null"]},
+        "dtype": {"type": ["string", "null"]},
+        "device_map": {"type": ["string", "object", "null"]},
+        "trust_remote_code": {"type": "boolean", "default": false}
       },
-      "additionalProperties": true
+      "not": {
+        "allOf": [
+          {"required": ["device"], "properties": {"device": {"type": "string"}}},
+          {
+            "required": ["device_map"],
+            "properties": {"device_map": {"type": ["string", "object"]}}
+          }
+        ]
+      },
+      "additionalProperties": false
     },
-    "benchmarks": {"type": "array", "minItems": 1},
-    "methods": {"type": "array", "minItems": 1}
-  },
-  "additionalProperties": true
+    "targetModel": {
+      "type": "object",
+      "required": ["path", "stage"],
+      "properties": {
+        "backend": {"const": "hf_local", "default": "hf_local"},
+        "path": {"type": "string", "minLength": 1},
+        "stage": {"type": "string", "enum": ["base", "sft", "rlhf"]},
+        "name": {"type": ["string", "null"]},
+        "tokenizer_path": {"type": ["string", "null"]},
+        "device": {"type": ["string", "null"]},
+        "dtype": {"type": ["string", "null"]},
+        "device_map": {"type": ["string", "object", "null"]},
+        "trust_remote_code": {"type": "boolean", "default": false},
+        "reference": {
+          "oneOf": [
+            {"$ref": "#/$defs/modelLoad"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "not": {
+        "allOf": [
+          {"required": ["device"], "properties": {"device": {"type": "string"}}},
+          {
+            "required": ["device_map"],
+            "properties": {"device_map": {"type": ["string", "object"]}}
+          }
+        ]
+      },
+      "additionalProperties": false
+    },
+    "control": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "split": {"type": "string", "default": "test"},
+        "subset": {"type": ["string", "null"]},
+        "max_samples": {"type": ["integer", "null"], "minimum": 1},
+        "selection": {"enum": ["random", "head"], "default": "random"}
+      },
+      "additionalProperties": false
+    },
+    "benchmark": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "split": {"type": "string", "default": "test"},
+        "subset": {"type": ["string", "null"]},
+        "max_samples": {"type": ["integer", "null"], "minimum": 1},
+        "selection": {"enum": ["random", "head"], "default": "random"},
+        "control": {
+          "oneOf": [
+            {"$ref": "#/$defs/control"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "codecMethod": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"const": "codec"},
+        "params": {
+          "type": "object",
+          "properties": {
+            "n_context": {"type": "integer", "minimum": 1},
+            "n_seeds": {"type": "integer", "minimum": 1},
+            "skip_first_tokens": {"type": "integer", "minimum": 0},
+            "dirty_threshold": {"type": "number", "minimum": 0, "maximum": 1},
+            "suspect_threshold": {"type": "number", "minimum": 0, "maximum": 1},
+            "min_samples": {"type": "integer", "minimum": 1},
+            "seed": {"type": "integer"},
+            "keep_deltas": {"type": "boolean"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "minKMethod": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"const": "mink_plus_plus"},
+        "params": {
+          "type": "object",
+          "properties": {
+            "k_ratio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+            "min_samples": {"type": "integer", "minimum": 1},
+            "estimator": {"enum": ["mean", "trim_mean", "median"]},
+            "trim_ratio": {"type": "number", "minimum": 0, "exclusiveMaximum": 0.5}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "permutationMethod": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"const": "perm_option"},
+        "params": {
+          "type": "object",
+          "properties": {
+            "max_permutations": {"type": "integer", "minimum": 1},
+            "min_samples": {"type": "integer", "minimum": 1},
+            "outlier_threshold": {"type": "number"},
+            "seed": {"type": "integer"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "spvMethod": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"const": "spv_mia"},
+        "params": {
+          "type": "object",
+          "properties": {
+            "n_neighbors": {"type": "integer", "minimum": 1},
+            "mask_ratio": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+            "min_samples": {"type": "integer", "minimum": 1},
+            "paraphraser": {"const": "random"},
+            "seed": {"type": "integer"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "paraphraseMethod": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"const": "paraphrase"},
+        "params": {
+          "type": "object",
+          "properties": {
+            "n_paraphrases": {"type": "integer", "minimum": 1},
+            "paraphraser": {"const": "rule"},
+            "worst_case_drop_threshold": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "suspect_threshold": {"type": "number", "minimum": 0, "maximum": 1},
+            "min_samples": {"type": "integer", "minimum": 1},
+            "seed": {"type": "integer"},
+            "cache_dir": {"type": ["string", "null"]},
+            "max_tokens": {"type": "integer", "minimum": 1}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

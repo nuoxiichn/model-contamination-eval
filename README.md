@@ -30,8 +30,8 @@ outputs/       本地运行产物（git ignored，仅保留目录占位）
 ## 快速开始
 
 ```bash
-# 推荐 Python 3.10+；开发依赖
-python -m pip install -e '.[dev]'
+# 推荐 Python 3.10+；本地 HF 模型和开发依赖
+python -m pip install -e '.[hf,dev]'
 
 # 查看注册表与方法过滤
 PYTHONPATH=src python -m model_contamination.cli list-benchmarks
@@ -40,11 +40,19 @@ PYTHONPATH=src python -m model_contamination.cli list-benchmarks --method codec
 # 校验 benchmark 配置
 PYTHONPATH=src python -m model_contamination.cli validate-config
 
+# 校验任务矩阵，不加载模型和数据
+MODEL_CHECKPOINT=/absolute/path/to/checkpoint \
+  mcd run --config configs/examples/local_hf.yaml --dry-run
+
+# 执行并生成 input_config.yaml、results.jsonl、report.md、run_manifest.json
+MODEL_CHECKPOINT=/absolute/path/to/checkpoint \
+  mcd run --config configs/examples/local_hf.yaml
+
 # 运行测试
 PYTHONPATH=src python -m pytest -q
 ```
 
-`mcd detect` 目前仍是未接通的编排入口，会显式报错；真正的实验请参照 [实验目录约定](experiments/README.md) 和 [输入输出契约](docs/guide/input_output_contract.md)，直接调用方法函数或现有实验脚本。这样不会把一个 TODO 命令误当成可靠的生产链路。
+`model.path` 可以是本地 Transformers/Hugging Face 格式的 checkpoint 目录，也可以是 `from_pretrained` 能解析的 Hub model ID。本地训练模型只需导出为该目录格式，不需要上传到 Hugging Face Hub。完整配置和失败语义见 [快速开始](docs/guide/getting_started.md) 与 [输入输出契约](docs/guide/input_output_contract.md)。旧的 `mcd detect` 只保留迁移提示。
 
 ## 方法状态摘要
 

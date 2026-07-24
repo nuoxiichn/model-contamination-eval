@@ -25,7 +25,7 @@
 
 ## 时间记录
 
-每个 run manifest 至少记录：开始/结束时间、wall time、GPU/CPU/内存、batch、dtype、样本数、缓存命中数和失败数。不要只在 notes 中写“跑了几小时”。
+统一 runner 当前自动记录开始/结束时间、wall time、平台与包版本、配置的 device/device_map/dtype、任务样本数和失败数。它尚不采集 GPU 峰值显存、CPU/内存利用率、batch 吞吐或缓存命中率；正式性能实验必须通过环境监控补采这些指标，并与 run ID 一起保存。不要只在 notes 中写“跑了几小时”。
 
 ## API 模型的 token 与费用
 

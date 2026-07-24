@@ -4,7 +4,7 @@
 
 ## 给使用者
 
-- [快速开始](guide/getting_started.md)：安装、列出 benchmark、运行测试和调用方法。
+- [快速开始](guide/getting_started.md)：安装、校验配置、运行本地模型和执行测试。
 - [输入/输出契约](guide/input_output_contract.md)：题目归一化字段、模型能力、结果与 manifest。
 - [方法说明](guide/methods.md)：每个方法的适用格式、指标方向、参数和失效条件。
 - [置信度与效力](guide/confidence_and_effectiveness.md)：positive control、AUC、置信区间和发布门禁边界。

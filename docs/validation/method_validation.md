@@ -27,5 +27,5 @@
 
 1. 固定正/负 anchor，按方法和 benchmark 冻结阈值；
 2. 每个关键结论至少 2 个 seed，并给 bootstrap CI；
-3. 接通统一 runner 和 `run_manifest.json`；
+3. 在真实 GPU 运行中补采峰值显存、吞吐和缓存命中率；统一 runner 当前已记录配置资源与 wall time；
 4. 对 loader 注册表逐项标记“可加载/需 gated/待实现”，避免 metadata 看起来比代码更完整。

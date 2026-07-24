@@ -1,43 +1,32 @@
-# Pipeline 默认参数（命令行 / 实验 yaml 可 override）
-
-# 缓存目录（logprobs 与 generate 结果都进这里，重跑差分时不重算）
-cache_dir: ./logprobs_cache
-
-# 实验输出根目录
-outputs_dir: ./outputs
-
-# 每个 benchmark 最多评估多少样本（None = 全量）
-max_samples_per_benchmark: 1000
-
-# ============ 各方法默认参数 ============
-
-paraphrase:
-  n_paraphrases: 5
-  paraphraser: rule          # 当前实现；远程模型改写尚未纳入可复现生产链路
-  worst_case_drop_threshold: 0.15
-
-mink_plus_plus:
-  k_ratio: 0.2          # 取概率最低的 20% token
-
-spv_mia:
-  reference_model: ${ENV:BASE_CHECKPOINT}
-  n_neighbors: 10
-  noise_scale: 0.1
-
-# ============ 综合裁决规则 ============
-
-verdict:
-  red_min_strong_signals: 2     # 强信号 ≥ 2 → 红灯
-  yellow_min_signals: 1
-  strong_signals: [codec, paraphrase, spv_mia]
-  weak_signals: [mink_plus_plus, perm_option]
-
-# ============ Stage 默认方法集 ============
-
-stages:
-  base:
-    methods: [codec, mink_plus_plus, perm_option]
-  sft:
-    methods: [codec, spv_mia, paraphrase, perm_option]
-  rlhf:
-    methods: [codec, mink_plus_plus, paraphrase]
+# 可直接用于 mcd run 的 base checkpoint 默认模板。
+schema_version: "1.0"
+run:
+  id: "base-default"
+  seed: 42
+  output_dir: "./outputs/runs/base-default"
+  fail_fast: false
+model:
+  backend: hf_local
+  path: "${MODEL_CHECKPOINT}"
+  stage: base
+  dtype: bfloat16
+  device_map: auto
+  trust_remote_code: false
+benchmarks:
+  - name: gsm8k
+    split: test
+    max_samples: 200
+    selection: random
+methods:
+  - name: codec
+    params:
+      n_context: 1
+      n_seeds: 5
+      skip_first_tokens: 10
+      min_samples: 100
+  - name: mink_plus_plus
+    params:
+      k_ratio: 0.2
+      min_samples: 30
+      estimator: trim_mean
+      trim_ratio: 0.1

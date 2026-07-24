@@ -3,21 +3,165 @@
   "$id": "https://example.invalid/model-contamination-eval/run-manifest.schema.json",
   "title": "Evaluation run manifest",
   "type": "object",
-  "required": ["schema_version", "run_id", "code", "model", "benchmarks", "timing", "tasks"],
+  "required": [
+    "schema_version",
+    "run_id",
+    "status",
+    "code",
+    "model",
+    "benchmarks",
+    "methods",
+    "timing",
+    "environment",
+    "resources",
+    "plan",
+    "tasks",
+    "summary",
+    "artifacts"
+  ],
   "properties": {
-    "schema_version": {"type": "string"},
-    "run_id": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "run_id": {"type": "string", "minLength": 1},
+    "status": {
+      "enum": [
+        "running",
+        "completed",
+        "completed_with_inconclusive",
+        "completed_with_errors"
+      ]
+    },
     "code": {
       "type": "object",
       "required": ["git_commit", "dirty"],
-      "properties": {"git_commit": {"type": "string"}, "dirty": {"type": "boolean"}}
+      "properties": {
+        "git_commit": {"type": "string"},
+        "dirty": {"type": "boolean"}
+      },
+      "additionalProperties": false
     },
     "model": {"type": "object"},
-    "benchmarks": {"type": "array"},
-    "timing": {"type": "object"},
-    "resources": {"type": "object"},
-    "tasks": {"type": "array"},
-    "artifacts": {"type": "array"}
+    "benchmarks": {"type": "array", "items": {"type": "object"}},
+    "methods": {"type": "array", "items": {"type": "object"}},
+    "timing": {
+      "type": "object",
+      "required": ["started_at", "ended_at", "wall_time_seconds"],
+      "properties": {
+        "started_at": {"type": "string", "format": "date-time"},
+        "ended_at": {"type": ["string", "null"], "format": "date-time"},
+        "wall_time_seconds": {"type": "number", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "required": ["python", "platform", "packages"],
+      "properties": {
+        "python": {"type": "string"},
+        "platform": {"type": "string"},
+        "packages": {
+          "type": "object",
+          "additionalProperties": {"type": ["string", "null"]}
+        }
+      },
+      "additionalProperties": false
+    },
+    "resources": {
+      "type": "object",
+      "required": ["configured_device", "configured_device_map", "dtype"],
+      "properties": {
+        "configured_device": {"type": ["string", "null"]},
+        "configured_device_map": {"type": ["string", "object", "null"]},
+        "dtype": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "plan": {
+      "type": "object",
+      "required": ["task_count", "blocked_count"],
+      "properties": {
+        "task_count": {"type": "integer", "minimum": 1},
+        "blocked_count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "tasks": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/task"}
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "success": {"type": "integer", "minimum": 0},
+        "inconclusive": {"type": "integer", "minimum": 0},
+        "skipped": {"type": "integer", "minimum": 0},
+        "error": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "size_bytes"],
+        "properties": {
+          "path": {
+            "enum": [
+              "input_config.yaml",
+              "results.jsonl",
+              "report.md",
+              "run_manifest.json"
+            ]
+          },
+          "size_bytes": {"type": "integer", "minimum": 0}
+        },
+        "additionalProperties": false
+      }
+    }
   },
-  "additionalProperties": true
+  "additionalProperties": false,
+  "$defs": {
+    "issue": {
+      "type": "object",
+      "required": ["severity", "message"],
+      "properties": {
+        "severity": {"enum": ["warning", "error"]},
+        "message": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "task": {
+      "type": "object",
+      "required": [
+        "id",
+        "benchmark",
+        "method",
+        "status",
+        "started_at",
+        "ended_at",
+        "duration_seconds",
+        "method_params",
+        "issues"
+      ],
+      "properties": {
+        "id": {"type": "string"},
+        "benchmark": {"type": "string"},
+        "method": {
+          "enum": ["codec", "mink_plus_plus", "perm_option", "spv_mia", "paraphrase"]
+        },
+        "status": {"enum": ["success", "inconclusive", "skipped", "error"]},
+        "started_at": {"type": "string", "format": "date-time"},
+        "ended_at": {"type": "string", "format": "date-time"},
+        "duration_seconds": {"type": "number", "minimum": 0},
+        "method_params": {"type": "object"},
+        "issues": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/issue"}
+        },
+        "n_samples": {"type": "integer", "minimum": 0},
+        "n_control_samples": {"type": "integer", "minimum": 0},
+        "error": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  }
 }

@@ -45,6 +45,37 @@ loader 将每条题归一化为 `BenchmarkQuestion`：
 
 当前仓库只提供并验证 `HFLocalModel`。不存在可用于生产结论的 vLLM 或远程 API adapter。
 
+`mcd run` 的 `model.path` 接受本地 checkpoint 目录或 Hugging Face Hub model ID。这里的 HF 是 `AutoModelForCausalLM.from_pretrained` / `AutoTokenizer.from_pretrained` 可读取的格式约定；本地模型不需要上传。SFT 的 SPV-MIA 配置还必须提供 `model.reference`，通常指向同源 base checkpoint。
+
+## 运行配置
+
+runner 输入是严格校验的 YAML。完整示例见 `configs/examples/`，核心结构为：
+
+```yaml
+schema_version: "1.0"
+run:
+  id: local-smoke
+  seed: 42
+  output_dir: outputs/runs/local-smoke
+  fail_fast: false
+model:
+  backend: hf_local
+  path: ${MODEL_CHECKPOINT}
+  stage: base
+  dtype: bfloat16
+  device_map: auto
+benchmarks:
+  - name: gsm8k
+    split: test
+    max_samples: 50
+    selection: random
+methods:
+  - name: codec
+    params: {n_seeds: 2}
+```
+
+字符串中的 `${VAR}` 和 `${ENV:VAR}` 都从环境变量展开；缺失变量会在加载配置时显式报错。benchmark 和 method 名称在单次 run 中必须唯一，未知字段、未知方法参数和非法参数范围均会拒绝执行。
+
 ## 结果层
 
 每个方法必须返回 `DetectionResult`，字段语义如下：
@@ -71,7 +102,7 @@ loader 将每条题归一化为 `BenchmarkQuestion`：
 
 ## 运行产物契约
 
-正式 runner 接通后，每个 run 应落在 `outputs/runs/<run-id>/`：
+每个 `mcd run` 落在 `run.output_dir`（通常为 `outputs/runs/<run-id>/`）：
 
 ```text
 input_config.yaml    # 实际生效的配置快照
@@ -80,4 +111,8 @@ report.md             # 人读报告，包含限制和失败项
 run_manifest.json     # 模型/数据/代码/资源/时间元数据
 ```
 
-对应 JSON Schema 在 `schemas/`。在 runner 尚未接通前，实验脚本也应尽量遵循相同字段，不要只保存一张手工汇总表。
+对应 JSON Schema 在 `schemas/`。`results.jsonl` 按配置顺序对完整的 `benchmark × method` 矩阵逐行写入，所以中途方法失败后，已完成结果仍然可读；未执行、前置条件不足和异常分别在 manifest 中标为 `skipped`、`inconclusive` 或 `error`，不会静默省略。
+
+`run_manifest.json` 记录 Git commit/dirty 状态、模型与方法配置、Python 和关键包版本、开始/结束时间、任务级样本数/耗时/错误以及产物清单。它记录的是配置资源信息，不等价于 GPU 峰值显存监控；实测显存、功耗等仍需实验环境额外采集。
+
+默认不覆盖已有标准产物。`--overwrite` 会从头重写同一输出目录中的四个标准文件；`--output-dir` 只覆盖本次运行的输出位置，并写入生效后的 `input_config.yaml`。

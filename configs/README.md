@@ -1,11 +1,14 @@
 # 配置说明
 
-`benchmarks.yaml` 是 benchmark 元数据注册表，`pipeline.yaml` 是默认方法参数，`examples/` 放可复制的运行输入。
+`benchmarks.yaml` 是 benchmark 元数据注册表，`pipeline.yaml` 是可直接运行的默认模板，`examples/` 放按场景复制的运行输入。
 
-注意：当前没有统一 runner 解析所有 pipeline 字段；配置首先作为实验契约和未来 runner 的输入。实验脚本可以覆盖配置，但必须在 `notes.md` 中记录实际生效值。
+运行配置由 `mcd run` 严格解析。推荐先做不加载模型和数据的任务矩阵检查：
 
 ```bash
 PYTHONPATH=src python -m model_contamination.cli validate-config --config configs/benchmarks.yaml
+MODEL_CHECKPOINT=/models/checkpoint mcd run --config configs/pipeline.yaml --dry-run
 ```
 
-模型路径、token、API key 和大文件只通过环境变量或本地未跟踪配置提供，不要提交到仓库。
+模型路径可写为 `${MODEL_CHECKPOINT}` 或 `${ENV:MODEL_CHECKPOINT}`。本地训练模型只需是 Transformers/Hugging Face 可读取的目录，无需上传到 Hub。token、API key 和大文件只通过环境变量或本地未跟踪配置提供，不要提交到仓库。
+
+字段和失败语义见 [输入输出契约](../docs/guide/input_output_contract.md)，机器可读约束见 [run_config.schema.json](../schemas/run_config.schema.json)。
